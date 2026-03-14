@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Suspend
+Comment=Suspend the computer
+Exec=systemctl suspend
+Icon=media-playback-pause
+Terminal=false
+Categories=System;
+Keywords=sleep;suspend;

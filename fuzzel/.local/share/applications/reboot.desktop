@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Restart (Reboot)
+Comment=Restart the computer
+Exec=systemctl reboot
+Icon=view-refresh
+Terminal=false
+Categories=System;
+Keywords=restart;reboot;
