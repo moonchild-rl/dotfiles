@@ -1,6 +1,6 @@
 alias n="nvim"
 alias nv="nvim"
-alias cat="bat"
+alias cat="bat --paging=never"
 alias cd="z"
 alias ls="eza --group-directories-first --icons=auto"
 alias lt="ls --icons --tree --level 2"
