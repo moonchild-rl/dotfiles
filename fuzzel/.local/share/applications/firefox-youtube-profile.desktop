@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Firefox (Youtube)
+Comment=Open Firefox youtube profile
+Exec=firefox -P "youtube" %u
+Icon=firefox
+Terminal=false
+Categories=Network;WebBrowser;
+StartupNotify=true
