@@ -13,4 +13,3 @@ alias cargo="cargo mommy"
 #alias find='fd'
 #alias y="yazi"
 alias yt="yt-dlp"
-alias dircheck='diff -rq' # use: diff -rq /path/to/old /path/to/new

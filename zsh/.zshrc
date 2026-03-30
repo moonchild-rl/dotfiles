@@ -131,6 +131,21 @@ z() {
   # eza -lah --group-directories-first --icons=auto --git
 }
 
+# To show existing file differences between two folders
+missingfiles() {
+  if [ "$#" -ne 2 ]; then
+    echo "Usage: missingfiles <dir1> <dir2>"
+    return 1
+  fi
+
+  echo "Only in $1:"
+  rsync -ani --ignore-existing --out-format='%n' "$1"/ "$2"/
+
+  echo
+  echo "Only in $2:"
+  rsync -ani --ignore-existing --out-format='%n' "$2"/ "$1"/
+}
+
 # Source file with private components for .zshrc
 source ~/.zshrc-private.zsh
 
