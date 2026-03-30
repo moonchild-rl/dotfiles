@@ -134,16 +134,24 @@ z() {
 # To show existing file differences between two folders
 missingfiles() {
   if [ "$#" -ne 2 ]; then
-    echo "Usage: missingfiles <dir1> <dir2>"
+    echo "Usage: missingfiles <source_dir> <target_dir>"
     return 1
   fi
 
-  echo "Only in $1:"
-  rsync -ani --ignore-existing --out-format='%n' "$1"/ "$2"/
+  local src="${1%/}"
+  local dst="${2%/}"
 
-  echo
-  echo "Only in $2:"
-  rsync -ani --ignore-existing --out-format='%n' "$2"/ "$1"/
+  if [ ! -d "$src" ]; then
+    echo "Not a directory: $src"
+    return 1
+  fi
+
+  if [ ! -d "$dst" ]; then
+    echo "Not a directory: $dst"
+    return 1
+  fi
+
+  rsync -ani --ignore-existing --out-format='%n' "$src/" "$dst/" | grep -vx './'
 }
 
 # Source file with private components for .zshrc
