@@ -10,7 +10,7 @@ alias neofetch='fastfetch'
 alias icat='kitten icat'
 alias cargo='cargo mommy'
 alias yt='yt-dlp -f "bv*[height<=720][tbr<=2000]+ba/b[height<=720]"'
-alias y='yazi'
 # Ideas that might break things:
 #alias grep='rg'
 #alias find='fd'
+#alias y='yazi'

@@ -80,7 +80,7 @@ COMPLETION_WAITING_DOTS="true"
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git sudo zsh-syntax-highlighting zsh-autosuggestions golang)
+plugins=(git sudo zsh-autosuggestions fast-syntax-highlighting fzf-tab)
 
 source $ZSH/oh-my-zsh.sh
 
