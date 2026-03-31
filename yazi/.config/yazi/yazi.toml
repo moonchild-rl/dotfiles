@@ -1,0 +1,12 @@
+[mgr]
+show_hidden = true
+
+[opener]
+nautilus = [
+  { run = "nautilus -- %s", orphan = true, for = "linux", desc = "Open in Nautilus" },
+]
+
+[open]
+prepend_rules = [
+  { url = "*/", use = "nautilus" },
+]
