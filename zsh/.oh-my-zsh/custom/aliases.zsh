@@ -1,15 +1,16 @@
-alias n="nvim"
-alias nv="nvim"
-alias cat="bat --paging=never"
-alias cd="z"
-alias ls="eza --group-directories-first --icons=auto"
-alias lt="ls --icons --tree --level 2"
-#alias grep="rg"
-alias hl="rg -p --passthru"
-alias ff="fastfetch"
-alias neofetch="fastfetch"
-alias icat="kitten icat"
-alias cargo="cargo mommy"
+alias n='nvim'
+alias nv='nvim'
+alias cat='bat --paging=never'
+alias cd='z'
+alias ls='eza --group-directories-first --icons=auto'
+alias lt='ls --icons --tree --level 2'
+alias hl='rg -p --passthru'
+alias ff='fastfetch'
+alias neofetch='fastfetch'
+alias icat='kitten icat'
+alias cargo='cargo mommy'
+alias yt='yt-dlp -f "bv*[height<=720][tbr<=2000]+ba/b[height<=720]"'
+alias y='yazi'
+# Ideas that might break things:
+#alias grep='rg'
 #alias find='fd'
-#alias y="yazi"
-alias yt="yt-dlp"
