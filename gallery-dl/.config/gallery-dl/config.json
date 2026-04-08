@@ -1,0 +1,44 @@
+{
+  "extractor": {
+    "base-directory": "/home/moon/Downloads/gallery-dl",
+    "archive": "/home/moon/.local/share/gallery-dl/archive.sqlite3",
+    "skip": true,
+    "path-restrict": "windows+",
+    "path-strip": "auto",
+    "cookies-update": true,
+
+    "twitter": {
+      "cookies": [
+        "firefox",
+        "/home/moon/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
+        null,
+        "all"
+      ],
+      "size": ["large", "medium", "small"],
+      "timeline": {
+        "strategy": "tweets"
+      },
+      "text-tweets": false,
+      "retweets": false,
+      "videos": true,
+      "pinned": false,
+      "directory": ["x", "{author[name]}"],
+      "filename": "{tweet_id}_{author[name]}_{num}.{extension}",
+      "postprocessors": [
+        {
+          "name": "metadata",
+          "event": "post",
+          "mode": "custom",
+          "filename": "{tweet_id}_{author[name]}.txt",
+          "content-format": "{content}\n"
+        }
+      ]
+    }
+  },
+  "downloader": {
+    "ytdl": {
+      "format": "bv*+ba/b",
+      "cmdline-args": ["--format-sort-reset", "-S", "height:720,+size,+br"]
+    }
+  }
+}
