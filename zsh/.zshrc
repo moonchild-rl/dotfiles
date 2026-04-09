@@ -82,18 +82,10 @@ COMPLETION_WAITING_DOTS="true"
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git sudo fzf fzf-tab zsh-autosuggestions fast-syntax-highlighting)
 
-# For using end key after paste without putting in a suggestion
-ZSH_AUTOSUGGEST_ACCEPT_WIDGETS=(
-  forward-char
-  vi-forward-char
-  vi-end-of-line
-  vi-add-eol
-)
-ZSH_AUTOSUGGEST_IGNORE_WIDGETS=(
-  end-of-line
-)
-
 source $ZSH/oh-my-zsh.sh
+
+# For using end key after paste without putting in a suggestion
+bindkey '\eOF' .end-of-line
 
 # User configuration
 
