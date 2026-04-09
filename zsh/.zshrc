@@ -1,4 +1,4 @@
-# Before instant prompt
+# This first block are commands that have to go before instant prompt
 fastfetch
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
@@ -80,7 +80,18 @@ COMPLETION_WAITING_DOTS="true"
 # Custom plugins may be added to $ZSH_CUSTOM/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git sudo zsh-autosuggestions fast-syntax-highlighting fzf-tab)
+plugins=(git sudo fzf fzf-tab zsh-autosuggestions fast-syntax-highlighting)
+
+# For using end key after paste without putting in a suggestion
+ZSH_AUTOSUGGEST_ACCEPT_WIDGETS=(
+  forward-char
+  vi-forward-char
+  vi-end-of-line
+  vi-add-eol
+)
+ZSH_AUTOSUGGEST_IGNORE_WIDGETS=(
+  end-of-line
+)
 
 source $ZSH/oh-my-zsh.sh
 
