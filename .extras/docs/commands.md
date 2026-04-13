@@ -1,12 +1,30 @@
-## Download saved posts with bdfr
-bdfr download ~/BDFR/bdfr_posts_new --user me --saved --authenticate --file-scheme {TITLE}_{POSTID}_{REDDITOR} -L 50
+## BDFR
+### Download saved posts with bdfr
+bdfr download "$HOME/BDFR/bdfr_posts_new" \
+  --user me \
+  --saved \
+  --authenticate \
+  --file-scheme '{TITLE}_{POSTID}_{REDDITOR}' \
+  --filename-restriction-scheme windows \
+  -L 50
+  
+### Download a single post with bdfr
+bdfr download . -l URL --file-scheme {TITLE}_{POSTID}_{REDDITOR}
 
-## Backup to external
+### or with file that contains IDs (one ID per line)
+
+bdfr download . --include-id-file /path/to/file --file-scheme {TITLE}_{POSTID}_{REDDITOR}
+
+------
+
+## Backups
+### Backup to external
 rsync -aivh --delete "/home/moon/path/to/source/" "/run/media/moon/52344F12344EF90D/path/to/destination/"
 
-### inspect first with:
+### or inspect first with:
 rsync -aivh --delete --dry-run "/home/moon/path/to/source/" "/run/media/moon/52344F12344EF90D/path/to/destination/" | less
 
+------
 
 ## To sanitize file names (change path/to/folder/ and APPLY = False to APPLY = True if it works):
 
@@ -48,5 +66,3 @@ for dirpath, dirnames, filenames in os.walk(root, topdown=False):
             if APPLY:
                 src.rename(dst)
 PY
-
-## For scripts that backup/sanitize file names check the scripts folder
