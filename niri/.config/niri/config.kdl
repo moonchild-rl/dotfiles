@@ -119,7 +119,7 @@ binds {
     // Commented out because dms used its own bind
     // Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
     Mod+W { spawn "firefox"; }
-    Mod+E { spawn "nautilus"; }
+    Mod+E { spawn "nautilus" "--new-window"; }
     Mod+Y { spawn "firefox" "-P" "youtube"; }
     Mod+P { spawn "flatpak" "run" "io.gitlab.librewolf-community"; }
 
