@@ -120,6 +120,8 @@ binds {
     // Super+Alt+L hotkey-overlay-title="Lock the Screen: swaylock" { spawn "swaylock"; }
     Mod+W { spawn "firefox"; }
     Mod+E { spawn "nautilus"; }
+    Mod+Y { spawn "firefox" "-P" "youtube"; }
+    Mod+P { spawn "flatpak" "run" "io.gitlab.librewolf-community"; }
 
     // Example volume keys mappings for PipeWire & WirePlumber.
     // "-l 1.0" limits the volume to 100%.
