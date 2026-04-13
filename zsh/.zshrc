@@ -122,62 +122,13 @@ export LESSHISTFILE='-'
 # To make zoxide work
 eval "$(zoxide init zsh)"
 
-z() {
-  __zoxide_z "$@" || return
-
-  # only show output in an interactive terminal (not scripts, not piped)
-  [[ -o interactive && -t 1 ]] || return 0
-
-  # simple, readable listing
-  eza --group-directories-first --icons=auto
-  # if you prefer a bit more detail, use:
-  # eza -lah --group-directories-first --icons=auto --git
-}
-
-# To show existing file differences between two folders
-missingfiles() {
-  if [ "$#" -ne 2 ]; then
-    echo "Usage: missingfiles <dir1> <dir2>"
-    return 1
-  fi
-
-  local dir1="${1%/}"
-  local dir2="${2%/}"
-
-  if [ ! -d "$dir1" ]; then
-    echo "Not a directory: $dir1"
-    return 1
-  fi
-
-  if [ ! -d "$dir2" ]; then
-    echo "Not a directory: $dir2"
-    return 1
-  fi
-
-  local out1 out2
-  out1=$(rsync -ani --ignore-existing --out-format='%n' "$dir1/" "$dir2/" | grep -vx './')
-  out2=$(rsync -ani --ignore-existing --out-format='%n' "$dir2/" "$dir1/" | grep -vx './')
-
-  echo "Present in $dir1 but missing in $dir2:"
-  [ -n "$out1" ] && printf '%s\n' "$out1" || echo "(none)"
-
-  echo
-  echo "Present in $dir2 but missing in $dir1:"
-  [ -n "$out2" ] && printf '%s\n' "$out2" || echo "(none)"
-}
-
-# Lets yazi change shell directory on exit
-y() {
-  local tmp="$(mktemp -t yazi-cwd.XXXXXX)"
-  yazi "$@" --cwd-file="$tmp"
-  if cwd="$(cat "$tmp")" && [ -n "$cwd" ]; then
-    cd "$cwd"
-  fi
-  rm -f "$tmp"
-}
+# Load modular zsh fragments in sorted order
+for f in ~/.config/zsh/rc.d/*.zsh(.N); do
+  source "$f"
+done
 
 # Source file with private components for .zshrc
-source ~/.zshrc-private.zsh
+[[ -f ~/.zshrc-private.zsh ]] && source ~/.zshrc-private.zsh
 
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
