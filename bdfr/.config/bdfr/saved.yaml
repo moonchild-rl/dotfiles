@@ -1,0 +1,9 @@
+# bdfr download --opts ~/.config/bdfr/saved.yaml [-L 50]
+directory: /home/moon/BDFR/bdfr_posts_new
+user:
+  - me
+saved: true
+authenticate: true
+file_scheme: "{TITLE}_{POSTID}_{REDDITOR}"
+filename_restriction_scheme: windows
+limit: 50

@@ -1,5 +1,4 @@
-# redditors.yaml
-# run with bdfr download . --opts redditors.yaml
+# bdfr download . --opts ~/.config/bdfr/redditors.yaml
 directory: .
 submitted: true
 
@@ -7,7 +6,6 @@ user:
   - username1
 
 folder_scheme: "{REDDITOR}"
-file_scheme: "{TITLE}_{POSTID}_{REDDITOR}"
 
 no_dupes: true
 search_existing: true

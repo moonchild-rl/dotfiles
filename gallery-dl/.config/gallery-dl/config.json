@@ -33,8 +33,24 @@
           "content-format": "{content}\n"
         }
       ]
+    },
+    
+    "instagram": {
+      "cookies": [
+        "firefox",
+        "/home/moon/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
+        null,
+        null,
+        ".instagram.com"
+      ],
+      "browser": "firefox",
+      "include": ["reels"],
+      "videos": "ytdl",
+      "directory": ["instagram", "{username}", "reels"],
+      "filename": "{media_id}_{shortcode}.{extension}"
     }
   },
+  
   "downloader": {
     "ytdl": {
       "format": "bv*+ba/b",

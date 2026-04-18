@@ -1,5 +1,4 @@
-# subreddits.yaml
-# run with bdfr download . --opts subreddits.yaml
+# bdfr download . --opts ~/.config/bdfr/subreddits.yaml
 directory: .
 
 subreddit:
@@ -10,7 +9,6 @@ time: year
 min_score: 7000
 
 folder_scheme: "{SUBREDDIT}"
-file_scheme: "{TITLE}_{POSTID}_{REDDITOR}"
 
 no_dupes: true
 search_existing: true
