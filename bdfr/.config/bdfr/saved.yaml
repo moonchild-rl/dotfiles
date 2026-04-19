@@ -1,5 +1,4 @@
-# bdfr download --opts ~/.config/bdfr/saved.yaml [-L 50]
-directory: /home/moon/BDFR/bdfr_posts_new
+# bdfr download ~/BDFR/bdfr_posts_new --opts ~/.config/bdfr/saved.yaml [-L 50]
 user:
   - me
 saved: true
