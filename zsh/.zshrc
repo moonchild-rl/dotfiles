@@ -1,5 +1,9 @@
 # This first block are commands that have to go before instant prompt
 fastfetch
+# Display a random tealdeer page
+tldr_cmd=$(tldr --quiet --list | shuf -n1)
+echo "\n\033[1;34m============= \033[0m$tldr_cmd\033[1;34m =============\033[0m"
+tldr --quiet "$tldr_cmd"
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
