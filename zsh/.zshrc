@@ -126,6 +126,11 @@ export LESSHISTFILE='-'
 # To make zoxide work
 eval "$(zoxide init zsh)"
 
+# Atuin shell history
+if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
+  eval "$(atuin init zsh --disable-up-arrow)"
+fi
+
 # Load modular zsh fragments in sorted order
 for f in ~/.config/zsh/rc.d/*.zsh(.N); do
   source "$f"

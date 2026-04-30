@@ -1,4 +1,4 @@
-# bdfr download . --opts ~/.config/bdfr/subreddits.yaml
+# bdfr download . --opts ~/.config/bdfr/opts/subreddits.yaml
 directory: .
 
 subreddit:

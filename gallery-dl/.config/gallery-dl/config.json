@@ -48,13 +48,22 @@
       "videos": "ytdl",
       "directory": ["instagram", "{username}", "reels"],
       "filename": "{media_id}_{shortcode}.{extension}"
+    },
+    
+    "reddit": {
+      "videos": "ytdl",
+      "comments": 0
     }
   },
   
   "downloader": {
     "ytdl": {
-      "format": "bv*+ba/b",
-      "cmdline-args": ["--format-sort-reset", "-S", "height:720,+size,+br"]
+      "format": "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
+      "cmdline-args": [
+        "--format-sort-reset",
+        "-S", "height:720,+size,+br",
+        "--merge-output-format", "mp4"
+      ]
     }
   }
 }

@@ -1,0 +1,23 @@
+[display]
+compact = false
+use_pager = false
+show_title = true
+
+[style.description]
+foreground = { ansi = 14 }
+italic = true
+
+[style.command_name]
+foreground = { ansi = 10 }
+bold = true
+
+[style.example_text]
+foreground = { ansi = 11 }
+
+[style.example_code]
+foreground = { ansi = 12 }
+bold = true
+
+[style.example_variable]
+foreground = { ansi = 13 }
+underline = true

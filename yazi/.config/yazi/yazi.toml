@@ -10,3 +10,15 @@ nautilus = [
 prepend_rules = [
   { url = "*/", use = "nautilus" },
 ]
+
+[[plugin.prepend_fetchers]]
+id    = "git"
+url   = "*"
+run   = "git"
+group = "git"
+
+[[plugin.prepend_fetchers]]
+id    = "git"
+url   = "*/"
+run   = "git"
+group = "git"

@@ -26,6 +26,7 @@ gallery-dl
 yazi
 ripgrep
 tealdeer
+atuin
 stow
 
 ### Special
