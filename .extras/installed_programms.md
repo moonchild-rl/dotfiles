@@ -12,6 +12,7 @@ lazygit
 meow
 cava
 cmatrix
+terminal-rain
 
 #### From aliases & configs
 
