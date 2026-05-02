@@ -134,7 +134,7 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
 fi
 
 # Load modular zsh fragments in sorted order
-for f in ~/.config/zsh/rc.d/*.zsh(.N); do
+for f in ~/.config/zsh/rc.d/*.zsh(N); do
   source "$f"
 done
 
