@@ -58,7 +58,7 @@
   
   "downloader": {
     "ytdl": {
-      "format": "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
+      "format": "bv*[height<=720]+ba/b[height<=720]/b[height<=720]/best[height<=720]",
       "cmdline-args": [
         "--format-sort-reset",
         "-S", "height:720,+size,+br",

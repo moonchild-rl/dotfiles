@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Krokiet
+Comment=Find duplicate and similar files
+Exec=krokiet
+Icon=krokiet_logo
+Terminal=false
+Categories=Utility;FileTools;

@@ -58,7 +58,7 @@ burl() {
 
   if (( convert )); then
     if (( $+commands[ffmpeg] )); then
-      find . -type f -newer "$marker" -iname '*.gif' -exec sh -c '
+      find . -type f -cnewer "$marker" -iname '*.gif' -exec sh -c '
         for f do
           out="${f%.*}.mp4"
 
@@ -85,7 +85,7 @@ burl() {
     fi
 
     if (( $+commands[cwebp] )); then
-      find . -type f -newer "$marker" \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) -exec sh -c '
+      find . -type f -cnewer "$marker" \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) -exec sh -c '
         for f do
           out="${f%.*}.webp"
 

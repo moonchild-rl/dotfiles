@@ -3,5 +3,10 @@ use = "yazi-rs/plugins:git"
 rev = "ac82af3"
 hash = "6849444b7c2df08eace83f3f86fb55a3"
 
+[[plugin.deps]]
+use = "llanosrocas/githead"
+rev = "317d09f"
+hash = "41dc37a724b2afd21da4f1ea6c1182d8"
+
 [flavor]
 deps = []
