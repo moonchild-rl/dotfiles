@@ -1,9 +1,13 @@
 # This first block are commands that have to go before instant prompt
-fastfetch
+(( $+commands[fastfetch] )) && fastfetch
 # Display a random tealdeer page
-tldr_cmd=$(tldr --quiet --list | shuf -n1)
-echo "\n\033[1;34m============= \033[0m$tldr_cmd\033[1;34m =============\033[0m"
-tldr --quiet "$tldr_cmd"
+if (( $+commands[tldr] && $+commands[shuf] )); then
+  tldr_cmd=$(tldr --quiet --list 2>/dev/null | shuf -n1)
+  if [[ -n "$tldr_cmd" ]]; then
+    echo "\n\033[1;34m============= \033[0m$tldr_cmd\033[1;34m =============\033[0m"
+    tldr --quiet "$tldr_cmd"
+  fi
+fi
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
@@ -18,10 +22,7 @@ export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
-# Set name of the theme to load --- if set to "random", it will
-# load a random theme each time Oh My Zsh is loaded, in which case,
-# to know which specific one was loaded, run: echo $RANDOM_THEME
-# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
+# Powerlevel10k
 ZSH_THEME="powerlevel10k/powerlevel10k"
 
 # Set list of themes to pick from when loading at random
@@ -79,14 +80,11 @@ COMPLETION_WAITING_DOTS="true"
 # Would you like to use another custom folder than $ZSH/custom?
 # ZSH_CUSTOM=/path/to/new-custom-folder
 
-# Which plugins would you like to load?
-# Standard plugins can be found in $ZSH/plugins/
-# Custom plugins may be added to $ZSH_CUSTOM/plugins/
-# Example format: plugins=(rails git textmate ruby lighthouse)
+# Which plugins would you like to load? 
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git sudo fzf fzf-tab zsh-autosuggestions fast-syntax-highlighting)
 
-source $ZSH/oh-my-zsh.sh
+source "$ZSH/oh-my-zsh.sh"
 
 # For using end key after paste without putting in a suggestion
 bindkey '\eOF' .end-of-line
@@ -101,8 +99,12 @@ bindkey '\eOF' .end-of-line
 # Preferred editor for local and remote sessions
 if [[ -n $SSH_CONNECTION ]]; then
   export EDITOR='vim'
-else
+elif (( $+commands[nvim] )); then
   export EDITOR='nvim'
+elif (( $+commands[vim] )); then
+  export EDITOR='vim'
+else
+  export EDITOR='nano'
 fi
 
 # Compilation flags
@@ -117,14 +119,14 @@ export LESSHISTFILE='-'
 # users are encouraged to define aliases within a top-level file in
 # the $ZSH_CUSTOM folder, with .zsh extension. Examples:
 # - $ZSH_CUSTOM/aliases.zsh
-# - $ZSH_CUSTOM/macos.zsh
-# For a full list of active aliases, run `alias`.
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
 [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 # To make zoxide work
-eval "$(zoxide init zsh)"
+if (( $+commands[zoxide] )); then
+  eval "$(zoxide init zsh)"
+fi
 
 # Atuin shell history
 if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then

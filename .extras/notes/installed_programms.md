@@ -5,14 +5,12 @@
 gdu
 btop
 fd
-lazygit
 
 #### Fun
 
 meow
 cava
 cmatrix
-terminal-rain
 
 #### From aliases & configs
 
@@ -26,9 +24,11 @@ bdfr
 gallery-dl
 yazi
 ripgrep
+lazygit
 tealdeer
 atuin
 stow
+terminal-rain
 
 ### Special
 
