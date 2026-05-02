@@ -1,0 +1,8 @@
+blur-my-shell@aunetx
+space-bar@luchrioh
+gsconnect@andyholmes.github.io
+aztaskbar@aztaskbar.gitlab.com
+caffeine@patapon.info
+clipboard-history@alexsaveau.dev
+search-light@icedman.github.com
+no-overview@fthx
