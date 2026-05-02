@@ -5,6 +5,7 @@
 gdu
 btop
 fd
+dysk
 
 #### Fun
 
