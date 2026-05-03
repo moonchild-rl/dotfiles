@@ -6,12 +6,14 @@ gdu
 btop
 fd
 dysk
+zellij
 
 #### Fun
 
 meow
 cava
 cmatrix
+terminal-rain
 
 #### From aliases & configs
 
@@ -29,7 +31,6 @@ lazygit
 tealdeer
 atuin
 stow
-terminal-rain
 
 ### Special
 
