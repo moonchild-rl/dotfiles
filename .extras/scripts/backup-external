@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Show what would be synced from SRC to DST.
+# Run with --apply to perform the sync.
+#
+# Usage:
+#   backup-external
+#   backup-external --apply
+
+set -euo pipefail
+
+SRC="/path/to/source"
+DST="/path/to/destination"
+
+# Basic sanity checks
+[[ -d "$SRC" ]] || { echo "Source is not a directory: $SRC"; exit 1; }
+[[ -d "$DST" ]] || { echo "Destination is not an existing directory: $DST"; exit 1; }
+
+# Resolve paths and make sure they are not the same place
+SRC_REAL="$(realpath "$SRC")"
+DST_REAL="$(realpath "$DST")"
+
+[[ "$SRC_REAL" != "$DST_REAL" ]] || {
+  echo "Source and destination are the same directory."
+  exit 1
+}
+
+if [[ "${1:-}" == "--apply" ]]; then
+  rsync -aivh --delete "$SRC_REAL"/ "$DST_REAL"/
+else
+  rsync -aivh --delete --dry-run "$SRC_REAL"/ "$DST_REAL"/
+fi
