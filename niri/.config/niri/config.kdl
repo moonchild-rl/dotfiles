@@ -2,9 +2,9 @@
 input {
     keyboard {
         xkb {
-	        layout "us"
-            variant "altgr-intl"
-	          options "caps:escape,altwin:swap_lalt_lwin"
+          layout "us"
+          variant "altgr-intl"
+          options "caps:escape,altwin:swap_lalt_lwin"
         }
     }
     focus-follows-mouse //max-scroll-amount="0%"
