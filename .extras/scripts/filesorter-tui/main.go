@@ -17,10 +17,10 @@ import (
 	"time"
 	"unicode"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
@@ -36,7 +36,7 @@ type Config struct {
 	Rules struct {
 		FolderMatch struct {
 			Enabled bool   `yaml:"enabled"`
-			Mode    string `yaml:"mode"` // "contains" or "word"
+			Mode    string `yaml:"mode"` // kept for config compatibility; matching is token/word-safe either way
 		} `yaml:"folder_match"`
 
 		Keywords struct {
@@ -55,7 +55,7 @@ func defaultConfig() Config {
 	cfg.Workers = 8
 
 	cfg.Rules.FolderMatch.Enabled = true
-	cfg.Rules.FolderMatch.Mode = "contains"
+	cfg.Rules.FolderMatch.Mode = "word"
 
 	cfg.Rules.Keywords.By = " by "
 	cfg.Rules.Keywords.Original = "original"
@@ -95,6 +95,9 @@ func loadOrCreateConfig(path string) (Config, bool, error) {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 8
 	}
+	if strings.TrimSpace(cfg.Rules.FolderMatch.Mode) == "" {
+		cfg.Rules.FolderMatch.Mode = "word"
+	}
 	if strings.TrimSpace(cfg.Rules.Keywords.By) == "" {
 		cfg.Rules.Keywords.By = " by "
 	}
@@ -115,15 +118,22 @@ func writeConfig(path string, cfg Config) error {
 /* -------------------- Data structures -------------------- */
 
 type FileRec struct {
-	Name  string
-	Path  string
-	Ext   string
-	Stem  string
-	Tok   []string // tokens of Stem (underscore + hyphen kept)
+	Name string
+	Path string
+	Ext  string
+	Stem string
+	Tok  []string // tokens of Stem; underscores and hyphens stay inside tokens
+
 	Paren []string // parentheses contents (raw)
 	ByTok []string // tokens after "by" keyword (if present)
 
-	FolderMatch string
+	// Existing destination folders whose names occur as whole token phrases in this file name.
+	// This deliberately does NOT match "xy" inside "xy-z".
+	FolderMatches []string
+
+	// Per-file decision made in the conflict UI.
+	ForcedFolder string
+	SkipMove     bool
 }
 
 type SuggestionKind string
@@ -156,34 +166,34 @@ type CandidateGroup struct {
 /* -------------------- CLI options -------------------- */
 
 type Options struct {
-	Dir     string
-	Workers int
-	Apply   bool
-	Config  string
+	Dir           string
+	Workers       int
+	Apply         bool
+	KeepOriginals bool
+	Config        string
 }
 
-// IMPORTANT: supports "folder first, flags after" AND "flags first, folder after".
+// Supports "folder first, flags after" AND "flags first, folder after".
 func parseArgs() Options {
 	var opt Options
 	opt.Dir = "."
 
 	fs := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
-	fs.SetOutput(io.Discard) // avoid flag package printing; we handle errors ourselves
+	fs.SetOutput(io.Discard)
 
 	fs.BoolVar(&opt.Apply, "apply", false, "Actually move files (default is dry-run)")
+	fs.BoolVar(&opt.KeepOriginals, "keep-originals", false, "With -apply, copy files into folders but keep the originals")
 	fs.IntVar(&opt.Workers, "workers", 8, "Workers for scanning/moving (default 8)")
 	fs.StringVar(&opt.Config, "config", "", "Path to config file (default: ./sorter.config.yaml)")
 
 	args := os.Args[1:]
 
-	// If first arg is a folder (not a flag), take it as Dir, then parse remaining flags.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		opt.Dir = args[0]
 		args = args[1:]
 	}
 
 	if err := fs.Parse(args); err != nil {
-		// show a helpful message
 		fmt.Fprintln(os.Stderr, "Argument error:", err)
 		fmt.Fprintln(os.Stderr, "Usage:")
 		fmt.Fprintln(os.Stderr, "  go run . /path/to/folder -apply")
@@ -191,7 +201,6 @@ func parseArgs() Options {
 		os.Exit(2)
 	}
 
-	// If flags were first and folder is leftover, pick it up.
 	if opt.Dir == "." && fs.NArg() > 0 && !strings.HasPrefix(fs.Arg(0), "-") {
 		opt.Dir = fs.Arg(0)
 	}
@@ -201,10 +210,10 @@ func parseArgs() Options {
 
 /* -------------------- Scanning -------------------- */
 
-func scanTopLevel(dir string) (subfolders []string, files []*FileRec, err error) {
+func scanTopLevel(dir string) (subfolders []string, files []*FileRec, skippedSpecial []string, err error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	for _, e := range entries {
@@ -217,6 +226,16 @@ func scanTopLevel(dir string) (subfolders []string, files []*FileRec, err error)
 			subfolders = append(subfolders, name)
 			continue
 		}
+
+		info, err := e.Info()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if !info.Mode().IsRegular() {
+			skippedSpecial = append(skippedSpecial, name)
+			continue
+		}
+
 		ext := filepath.Ext(name)
 		stem := strings.TrimSuffix(name, ext)
 		stem = normalizeStem(stem)
@@ -231,8 +250,9 @@ func scanTopLevel(dir string) (subfolders []string, files []*FileRec, err error)
 	}
 
 	sort.Strings(subfolders)
+	sort.Strings(skippedSpecial)
 	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
-	return subfolders, files, nil
+	return subfolders, files, skippedSpecial, nil
 }
 
 func matchFolderNames(files []*FileRec, subfolders []string, cfg Config) {
@@ -243,25 +263,49 @@ func matchFolderNames(files []*FileRec, subfolders []string, cfg Config) {
 				matches = append(matches, sf)
 			}
 		}
-		if len(matches) == 1 {
-			f.FolderMatch = matches[0]
-		}
+		f.FolderMatches = uniqSorted(matches)
 	}
 }
 
 func folderMatch(stem, folder string, cfg Config) bool {
-	a := stem
-	b := folder
-	if cfg.CaseInsensitive {
-		a = strings.ToLower(a)
-		b = strings.ToLower(b)
+	// Safety change: even when an old config says mode: contains, folder matching is
+	// phrase-token based. So folder "xy" matches "foo xy bar" but not "xy-z foo".
+	stemTok := tokenize(stem)
+	folderTok := tokenize(folder)
+	return containsTokenPhrase(stemTok, folderTok, cfg.CaseInsensitive)
+}
+
+func containsTokenPhrase(haystack, needle []string, caseInsensitive bool) bool {
+	if len(needle) == 0 || len(haystack) < len(needle) {
+		return false
 	}
-	mode := strings.ToLower(strings.TrimSpace(cfg.Rules.FolderMatch.Mode))
-	if mode == "word" {
-		re := regexp.MustCompile(`(^|\s)` + regexp.QuoteMeta(b) + `(\s|$)`)
-		return re.FindStringIndex(a) != nil
+	for start := 0; start <= len(haystack)-len(needle); start++ {
+		ok := true
+		for i := 0; i < len(needle); i++ {
+			a := haystack[start+i]
+			b := needle[i]
+			if caseInsensitive {
+				a = strings.ToLower(a)
+				b = strings.ToLower(b)
+			}
+			if a != b {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			return true
+		}
 	}
-	return strings.Contains(a, b)
+	return false
+}
+
+func makeExistingFolderSet(subfolders []string) map[string]bool {
+	set := make(map[string]bool, len(subfolders))
+	for _, sf := range subfolders {
+		set[strings.ToLower(normalizeCandidate(sf))] = true
+	}
+	return set
 }
 
 /* -------------------- Pre-extraction -------------------- */
@@ -339,7 +383,6 @@ func extractByTokens(stem, byKeyword string, caseInsensitive bool) []string {
 /* -------------------- Suggestion heuristics -------------------- */
 
 func computeSuggestion(f *FileRec, cfg Config, stop map[string]bool) (Suggestion, bool) {
-	// 1) by
 	if len(f.ByTok) > 0 {
 		base := normalizeCandidate(f.ByTok[0])
 		if base == "" || isStopwordSingle(base, stop) {
@@ -348,7 +391,6 @@ func computeSuggestion(f *FileRec, cfg Config, stop map[string]bool) (Suggestion
 		return Suggestion{Kind: SugBy, Base: base, Context: f.ByTok}, true
 	}
 
-	// 2) original -> username likely before "original"
 	origSeg := originalPrefixTokens(f.Tok, cfg.Rules.Keywords.Original, cfg.CaseInsensitive)
 	if len(origSeg) > 0 {
 		base := normalizeCandidate(origSeg[0])
@@ -358,7 +400,6 @@ func computeSuggestion(f *FileRec, cfg Config, stop map[string]bool) (Suggestion
 		return Suggestion{Kind: SugOriginal, Base: base, Context: origSeg}, true
 	}
 
-	// 3) parentheses containing exactly one word
 	for i := len(f.Paren) - 1; i >= 0; i-- {
 		p := f.Paren[i]
 		pt := tokenize(p)
@@ -371,7 +412,6 @@ func computeSuggestion(f *FileRec, cfg Config, stop map[string]bool) (Suggestion
 		}
 	}
 
-	// 4) multi-word parentheses as fallback before "beginning"
 	for i := len(f.Paren) - 1; i >= 0; i-- {
 		p := f.Paren[i]
 		pt := tokenize(p)
@@ -384,7 +424,6 @@ func computeSuggestion(f *FileRec, cfg Config, stop map[string]bool) (Suggestion
 		}
 	}
 
-	// 5) fallback: beginning first word
 	if len(f.Tok) > 0 {
 		base := normalizeCandidate(f.Tok[0])
 		if base == "" || isStopwordSingle(base, stop) {
@@ -562,18 +601,7 @@ func fileMatchesUsernamePartial(f *FileRec, typed string, cfg Config) bool {
 
 /* -------------------- Build candidate groups -------------------- */
 
-func buildGroups(files []*FileRec, cfg Config, stop map[string]bool, confirmedSet map[string]bool, skippedSet map[string]bool, confirmed []Username) []*CandidateGroup {
-	eligible := make([]*FileRec, 0, len(files))
-	for _, f := range files {
-		if f.FolderMatch != "" {
-			continue
-		}
-		if isCoveredByAny(f, confirmed, cfg) {
-			continue
-		}
-		eligible = append(eligible, f)
-	}
-
+func buildGroups(files []*FileRec, cfg Config, stop map[string]bool, confirmedSet map[string]bool, skippedSet map[string]bool, confirmed []Username, existingFolderSet map[string]bool) []*CandidateGroup {
 	type agg struct {
 		kind  SuggestionKind
 		files []*FileRec
@@ -582,7 +610,14 @@ func buildGroups(files []*FileRec, cfg Config, stop map[string]bool, confirmedSe
 	}
 	m := map[string]*agg{}
 
-	for _, f := range eligible {
+	for _, f := range files {
+		if f.SkipMove || f.ForcedFolder != "" {
+			continue
+		}
+		if isCoveredByAny(f, confirmed, cfg) {
+			continue
+		}
+
 		sug, ok := computeSuggestion(f, cfg, stop)
 		if !ok || sug.Base == "" {
 			continue
@@ -619,6 +654,17 @@ func buildGroups(files []*FileRec, cfg Config, stop map[string]bool, confirmedSe
 		opt2, opt2c := topExpansion(a.exp2)
 		opt3, opt3c := topExpansion(a.exp3)
 
+		baseKey := strings.ToLower(normalizeCandidate(base))
+		baseIsExistingFolder := existingFolderSet[baseKey]
+
+		// If the candidate is already an existing folder, do not annoy the user with
+		// a prompt just to confirm the folder. But if a longer repeated prefix exists
+		// (e.g. existing folder "zy", files "zy 1 1", "zy 1 2", "zy 1"), show the
+		// prompt so the user can choose "zy" vs "zy 1".
+		if baseIsExistingFolder && opt2c < cfg.MinOccurrences && opt3c < cfg.MinOccurrences {
+			continue
+		}
+
 		groups = append(groups, &CandidateGroup{
 			Base:      base,
 			Kind:      a.kind,
@@ -646,7 +692,7 @@ func topExpansion(m map[string]int) (string, int) {
 	bestTok := -1
 	for k, c := range m {
 		tok := len(tokenize(k))
-		if c > bestC || (c == bestC && tok > bestTok) || (c == bestC && tok == bestTok && k < best) {
+		if c > bestC || (c == bestC && tok > bestTok) || (c == bestC && tok == bestTok && (best == "" || k < best)) {
 			best = k
 			bestC = c
 			bestTok = tok
@@ -687,13 +733,24 @@ func buildPlan(files []*FileRec, confirmed []Username, cfg Config) (Plan, []*Amb
 	var unsorted []string
 	var ambiguous []*AmbiguousFile
 
+	seenSrc := map[string]bool{}
+
 	for _, f := range files {
-		if f.FolderMatch != "" {
-			jobs = append(jobs, MoveJob{SrcPath: f.Path, DstDir: f.FolderMatch})
+		if f.SkipMove {
+			unsorted = append(unsorted, f.Name)
+			continue
+		}
+
+		if f.ForcedFolder != "" {
+			if !seenSrc[f.Path] {
+				jobs = append(jobs, MoveJob{SrcPath: f.Path, DstDir: f.ForcedFolder})
+				seenSrc[f.Path] = true
+			}
 			continue
 		}
 
 		var matches []string
+		matches = append(matches, f.FolderMatches...)
 		for _, u := range confirmed {
 			if fileMatchesUsernameStrict(f, u, cfg) {
 				matches = append(matches, u.Folder)
@@ -702,11 +759,13 @@ func buildPlan(files []*FileRec, confirmed []Username, cfg Config) (Plan, []*Amb
 		matches = uniqSorted(matches)
 
 		if len(matches) == 1 {
-			jobs = append(jobs, MoveJob{SrcPath: f.Path, DstDir: matches[0]})
+			if !seenSrc[f.Path] {
+				jobs = append(jobs, MoveJob{SrcPath: f.Path, DstDir: matches[0]})
+				seenSrc[f.Path] = true
+			}
 		} else if len(matches) > 1 {
 			ambiguous = append(ambiguous, &AmbiguousFile{File: f, Options: matches, Cursor: 0})
 		} else {
-			// by the end, unmatched files are simply not moved
 			unsorted = append(unsorted, f.Name)
 		}
 	}
@@ -722,7 +781,7 @@ type moveProgressMsg struct{ delta int }
 type moveErrMsg struct{ err error }
 type moveFinishedMsg struct{}
 
-func startMoveWorkers(ctx context.Context, absTargetDir string, jobs []MoveJob, workers int) chan tea.Msg {
+func startMoveWorkers(ctx context.Context, absTargetDir string, jobs []MoveJob, workers int, keepOriginals bool) chan tea.Msg {
 	ch := make(chan tea.Msg, 128)
 
 	if workers <= 0 {
@@ -755,14 +814,13 @@ func startMoveWorkers(ctx context.Context, absTargetDir string, jobs []MoveJob, 
 							return nil
 						}
 						dstDirAbs := filepath.Join(absTargetDir, j.DstDir)
+						if !isSubpath(absTargetDir, dstDirAbs) {
+							return fmt.Errorf("refusing destination outside target directory: %q", dstDirAbs)
+						}
 						if err := os.MkdirAll(dstDirAbs, 0o755); err != nil {
 							return err
 						}
-						dstPath, err := uniqueDestPath(dstDirAbs, filepath.Base(j.SrcPath))
-						if err != nil {
-							return err
-						}
-						if err := safeMove(j.SrcPath, dstPath); err != nil {
+						if _, err := moveToUniqueDestination(j.SrcPath, dstDirAbs, keepOriginals); err != nil {
 							return err
 						}
 						ch <- moveProgressMsg{delta: 1}
@@ -818,15 +876,18 @@ const (
 )
 
 type model struct {
-	absTargetDir string
-	cfgPath      string
-	cfg          Config
-	apply        bool
+	absTargetDir  string
+	cfgPath       string
+	cfg           Config
+	apply         bool
+	keepOriginals bool
 
 	createdConfig bool
 
-	subfolders []string
-	files      []*FileRec
+	subfolders      []string
+	existingFolders map[string]bool
+	files           []*FileRec
+	skippedSpecial  []string
 
 	stop map[string]bool
 
@@ -914,7 +975,7 @@ func (m model) View() string {
 /* -------------------- Candidate stage -------------------- */
 
 func (m model) refreshGroups() model {
-	m.groups = buildGroups(m.files, m.cfg, m.stop, m.confirmedSet, m.skippedSet, m.confirmed)
+	m.groups = buildGroups(m.files, m.cfg, m.stop, m.confirmedSet, m.skippedSet, m.confirmed, m.existingFolders)
 	m.gidx = 0
 	return m
 }
@@ -933,10 +994,14 @@ func (m model) acceptUsername(name string) model {
 	}
 	key := strings.ToLower(u.Name)
 	if m.confirmedSet[key] {
-		return m
+		return m.refreshGroups()
 	}
 	m.confirmedSet[key] = true
 	m.confirmed = append(m.confirmed, u)
+	if m.existingFolders == nil {
+		m.existingFolders = map[string]bool{}
+	}
+	m.existingFolders[key] = true
 	return m.refreshGroups()
 }
 
@@ -955,7 +1020,7 @@ func (m model) optionMatchCount(opt string) int {
 	}
 	cnt := 0
 	for _, f := range m.files {
-		if f.FolderMatch != "" {
+		if f.SkipMove || f.ForcedFolder != "" {
 			continue
 		}
 		if isCoveredByAny(f, m.confirmed, m.cfg) {
@@ -987,12 +1052,11 @@ func (m model) recommendOption(g *CandidateGroup) (recIdx int, counts [3]int, la
 
 	maxC := counts[0]
 	for i := 1; i < 3; i++ {
-		if counts[i] > maxC {
+		if labels[i] != "" && counts[i] > maxC {
 			maxC = counts[i]
 		}
 	}
 
-	// Among tied max count, recommend the LONGEST (most tokens), as requested.
 	bestIdx := 0
 	bestTok := len(tokenize(labels[0]))
 	for i := 1; i < 3; i++ {
@@ -1000,19 +1064,9 @@ func (m model) recommendOption(g *CandidateGroup) (recIdx int, counts [3]int, la
 			continue
 		}
 		tok := len(tokenize(labels[i]))
-		if counts[i] == maxC && tok > bestTok {
+		if tok > bestTok {
 			bestIdx = i
 			bestTok = tok
-		}
-	}
-	// Also ensure bestIdx has the max count
-	if counts[bestIdx] != maxC {
-		// fallback to first max
-		for i := 0; i < 3; i++ {
-			if counts[i] == maxC && labels[i] != "" {
-				bestIdx = i
-				break
-			}
 		}
 	}
 	return bestIdx, counts, labels
@@ -1021,7 +1075,11 @@ func (m model) recommendOption(g *CandidateGroup) (recIdx int, counts [3]int, la
 func (m model) updateCandidates(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if len(m.groups) == 0 {
 		m.plan, m.conflicts = m.buildPlanAndConflicts()
-		m.st = stageSummary
+		if len(m.conflicts) > 0 {
+			m.st = stageConflicts
+		} else {
+			m.st = stageSummary
+		}
 		return m, nil
 	}
 	if m.gidx >= len(m.groups) {
@@ -1048,7 +1106,6 @@ func (m model) updateCandidates(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case "s":
-			// skip candidate username permanently
 			m = m.skipCandidate(g.Base)
 			return m, nil
 
@@ -1080,14 +1137,12 @@ func (m model) updateCandidates(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case " ", "space":
-			// Space selects +1 word (common action)
 			if g.Opt2 != "" {
 				m = m.acceptUsername(g.Opt2)
 				return m, nil
 			}
 
 		case "enter":
-			// Enter still accepts the proposed base (most common action)
 			m = m.acceptUsername(g.Base)
 			return m, nil
 		}
@@ -1109,7 +1164,13 @@ func (m model) viewCandidates() string {
 		if name == "" {
 			return subtleStyle.Render(fmt.Sprintf("  %-10s (n/a)\n", key))
 		}
-		line := fmt.Sprintf("  %-10s %-34s %s", key, name, subtleStyle.Render(fmt.Sprintf("matches %d", count)))
+		note := ""
+		if m.existingFolders[strings.ToLower(normalizeCandidate(name))] {
+			note = subtleStyle.Render(" existing folder")
+		} else {
+			note = subtleStyle.Render(" new folder")
+		}
+		line := fmt.Sprintf("  %-10s %-34s %s%s", key, name, subtleStyle.Render(fmt.Sprintf("matches %d", count)), note)
 		if idx == recIdx && count >= 0 {
 			return reco.Render("recommended") + " " + line + "\n"
 		}
@@ -1120,7 +1181,11 @@ func (m model) viewCandidates() string {
 	b.WriteString(titleStyle.Render(fmt.Sprintf("%d username candidates remaining", remaining)) + "\n\n")
 	b.WriteString(fmt.Sprintf("Candidate: %q  ", g.Base))
 	b.WriteString(subtleStyle.Render(fmt.Sprintf("(%s, seen %d×)", g.Kind, g.Count)))
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if m.existingFolders[strings.ToLower(normalizeCandidate(g.Base))] {
+		b.WriteString(warnStyle.Render("This base name already exists as a folder. Choose carefully if a longer option is recommended.") + "\n")
+	}
+	b.WriteString("\n")
 
 	b.WriteString(titleStyle.Render("Choose:") + "\n")
 	b.WriteString(renderLine(0, "[Enter]/[1]", labels[0], counts[0]))
@@ -1137,7 +1202,7 @@ func (m model) viewCandidates() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(subtleStyle.Render("Keys: e=edit  s=skip (forever)  q=quit"))
+	b.WriteString(subtleStyle.Render("Keys: e=edit  s=skip candidate  q=quit"))
 	return card.Render(b.String())
 }
 
@@ -1161,7 +1226,6 @@ func (m model) updateEdit(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if val != "" {
 				m = m.acceptUsername(val)
 			} else {
-				// empty = skip current candidate permanently
 				if g := m.currentGroup(); g != nil {
 					m = m.skipCandidate(g.Base)
 				}
@@ -1180,7 +1244,7 @@ func (m model) liveMatchesForTyped(typed string) (int, []string) {
 	}
 	var names []string
 	for _, f := range m.files {
-		if f.FolderMatch != "" {
+		if f.SkipMove || f.ForcedFolder != "" {
 			continue
 		}
 		if fileMatchesUsernamePartial(f, typed, m.cfg) {
@@ -1247,8 +1311,11 @@ func (m model) updateConflicts(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			if cur.Cursor >= 0 && cur.Cursor < len(cur.Options) {
-				// set a per-file destination
-				cur.File.FolderMatch = cur.Options[cur.Cursor]
+				cur.File.ForcedFolder = cur.Options[cur.Cursor]
+				cur.File.SkipMove = false
+			} else {
+				cur.File.ForcedFolder = ""
+				cur.File.SkipMove = true
 			}
 			m.cidx++
 			if m.cidx >= len(m.conflicts) {
@@ -1265,7 +1332,7 @@ func (m model) viewConflicts() string {
 	cur := m.conflicts[m.cidx]
 	var b strings.Builder
 	b.WriteString(warnStyle.Render(fmt.Sprintf("Conflict %d/%d", m.cidx+1, len(m.conflicts))) + "\n\n")
-	b.WriteString("File matches multiple confirmed usernames:\n")
+	b.WriteString("File matches multiple possible destinations:\n")
 	b.WriteString("  " + cur.File.Name + "\n\n")
 	b.WriteString("Choose destination:\n")
 
@@ -1303,7 +1370,6 @@ func (m model) updateSummary(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.st = stageDone
 				return m, tea.Quit
 			}
-			// Start moving
 			m.st = stageMoving
 			m.moveTotal = len(m.plan.Jobs)
 			atomic.StoreInt64(&m.moveDone, 0)
@@ -1312,7 +1378,7 @@ func (m model) updateSummary(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.spin.Spinner = spinner.Dot
 
 			ctx := context.Background()
-			m.moveCh = startMoveWorkers(ctx, m.absTargetDir, m.plan.Jobs, m.cfg.Workers)
+			m.moveCh = startMoveWorkers(ctx, m.absTargetDir, m.plan.Jobs, m.cfg.Workers, m.keepOriginals)
 
 			cmds := []tea.Cmd{m.spin.Tick}
 			if m.moveTotal > 0 {
@@ -1337,7 +1403,11 @@ func (m model) viewSummary() string {
 
 	b.WriteString(fmt.Sprintf("Target:  %s\n", m.absTargetDir))
 	if m.apply {
-		b.WriteString(fmt.Sprintf("Mode:    %s\n", okStyle.Render("APPLY (move files)")))
+		if m.keepOriginals {
+			b.WriteString(fmt.Sprintf("Mode:    %s\n", okStyle.Render("APPLY (copy files; keep originals)")))
+		} else {
+			b.WriteString(fmt.Sprintf("Mode:    %s\n", okStyle.Render("APPLY (move files)")))
+		}
 	} else {
 		b.WriteString(fmt.Sprintf("Mode:    %s\n", warnStyle.Render("DRY RUN (no moves)")))
 	}
@@ -1345,7 +1415,11 @@ func (m model) viewSummary() string {
 
 	b.WriteString(fmt.Sprintf("Confirmed usernames: %d\n", len(m.confirmed)))
 	b.WriteString(fmt.Sprintf("Will move: %d file(s)\n", len(m.plan.Jobs)))
-	b.WriteString(fmt.Sprintf("Unsorted (won't move): %d file(s)\n\n", len(m.plan.Unsorted)))
+	b.WriteString(fmt.Sprintf("Unsorted / skipped (won't move): %d file(s)\n", len(m.plan.Unsorted)))
+	if len(m.skippedSpecial) > 0 {
+		b.WriteString(fmt.Sprintf("Skipped non-regular files/symlinks: %d\n", len(m.skippedSpecial)))
+	}
+	b.WriteString("\n")
 
 	preview := min(12, len(m.plan.Jobs))
 	if preview > 0 {
@@ -1399,9 +1473,6 @@ func (m model) updateMoving(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	if m.moveCh != nil {
-		return m, waitMoveMsg(m.moveCh)
-	}
 	return m, nil
 }
 
@@ -1417,7 +1488,11 @@ func (m model) viewMoving() string {
 
 	b.WriteString(fmt.Sprintf("%s  %d / %d\n\n", m.spin.View(), done, m.moveTotal))
 	b.WriteString(m.progressBar.View() + "\n\n")
-	b.WriteString(subtleStyle.Render("Press q to exit the UI (moves may still continue)."))
+	if m.keepOriginals {
+		b.WriteString(subtleStyle.Render("Copying with no-overwrite semantics; originals are kept."))
+	} else {
+		b.WriteString(subtleStyle.Render("Destination files are created with no-overwrite semantics before originals are unlinked."))
+	}
 	return card.Render(b.String())
 }
 
@@ -1449,7 +1524,7 @@ func main() {
 		cfg.Workers = 8
 	}
 
-	subfolders, files, err := scanTopLevel(absTargetDir)
+	subfolders, files, skippedSpecial, err := scanTopLevel(absTargetDir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Scan error:", err)
 		os.Exit(1)
@@ -1474,11 +1549,15 @@ func main() {
 		cfgPath:       cfgPath,
 		cfg:           cfg,
 		apply:         opt.Apply,
+		keepOriginals: opt.KeepOriginals,
+
 		createdConfig: created,
 
-		subfolders: subfolders,
-		files:      files,
-		stop:       stop,
+		subfolders:      subfolders,
+		existingFolders: makeExistingFolderSet(subfolders),
+		files:           files,
+		skippedSpecial:  skippedSpecial,
+		stop:            stop,
 
 		confirmed:    []Username{},
 		confirmedSet: map[string]bool{},
@@ -1511,11 +1590,17 @@ func main() {
 	fmt.Printf("Target: %s\n", finalModel.absTargetDir)
 	fmt.Printf("Mode: %s\n", func() string {
 		if finalModel.apply {
+			if finalModel.keepOriginals {
+				return "APPLY (COPY, KEEP ORIGINALS)"
+			}
 			return "APPLY"
 		}
 		return "DRY RUN"
 	}())
-	fmt.Printf("Will move: %d, Unsorted: %d\n", len(finalPlan.Jobs), len(finalPlan.Unsorted))
+	fmt.Printf("Will move: %d, Unsorted/skipped: %d\n", len(finalPlan.Jobs), len(finalPlan.Unsorted))
+	if len(finalModel.skippedSpecial) > 0 {
+		fmt.Printf("Skipped non-regular files/symlinks: %d\n", len(finalModel.skippedSpecial))
+	}
 
 	if finalModel.apply && finalModel.moveErr != nil {
 		fmt.Fprintln(os.Stderr, "Move error:", finalModel.moveErr)
@@ -1525,50 +1610,102 @@ func main() {
 
 /* -------------------- File move helpers -------------------- */
 
-func uniqueDestPath(dstDir, baseName string) (string, error) {
-	ext := filepath.Ext(baseName)
-	stem := strings.TrimSuffix(baseName, ext)
+var errDestinationExists = errors.New("destination already exists")
 
-	candidate := filepath.Join(dstDir, baseName)
-	if _, err := os.Stat(candidate); err != nil {
-		if os.IsNotExist(err) {
-			return candidate, nil
+func moveToUniqueDestination(src, dstDir string, keepOriginals bool) (string, error) {
+	baseName := filepath.Base(src)
+	for n := 0; n <= 9999; n++ {
+		dst := numberedDestPath(dstDir, baseName, n)
+		err := moveNoOverwrite(src, dst, keepOriginals)
+		if err == nil {
+			return dst, nil
+		}
+		if errors.Is(err, errDestinationExists) || os.IsExist(err) {
+			continue
 		}
 		return "", err
-	}
-
-	for n := 1; n <= 9999; n++ {
-		name := fmt.Sprintf("%s (%d)%s", stem, n, ext)
-		p := filepath.Join(dstDir, name)
-		if _, err := os.Stat(p); err != nil {
-			if os.IsNotExist(err) {
-				return p, nil
-			}
-			return "", err
-		}
 	}
 	return "", fmt.Errorf("too many name collisions for %q in %q", baseName, dstDir)
 }
 
-func safeMove(src, dst string) error {
-	err := os.Rename(src, dst)
-	if err == nil {
-		return nil
+func numberedDestPath(dstDir, baseName string, n int) string {
+	if n == 0 {
+		return filepath.Join(dstDir, baseName)
 	}
-	if errors.Is(err, syscall.EXDEV) {
-		if err := copyFilePreserve(src, dst); err != nil {
-			return err
-		}
-		return os.Remove(src)
-	}
-	return err
+	ext := filepath.Ext(baseName)
+	stem := strings.TrimSuffix(baseName, ext)
+	return filepath.Join(dstDir, fmt.Sprintf("%s (%d)%s", stem, n, ext))
 }
 
-func copyFilePreserve(src, dst string) error {
+func moveNoOverwrite(src, dst string, keepOriginals bool) error {
+	srcAbs, err := filepath.Abs(src)
+	if err != nil {
+		return err
+	}
+	dstAbs, err := filepath.Abs(dst)
+	if err != nil {
+		return err
+	}
+	if srcAbs == dstAbs {
+		return fmt.Errorf("refusing to move file onto itself: %q", src)
+	}
+
+	if keepOriginals {
+		if err := copyFilePreserveNoOverwrite(src, dst); err != nil {
+			if os.IsExist(err) {
+				return errDestinationExists
+			}
+			return err
+		}
+		return nil
+	}
+
+	// First try hard-link + unlink. This is race-safe and cannot overwrite dst:
+	// os.Link fails if dst already exists. If unlinking src fails, both names remain.
+	if err := os.Link(src, dst); err == nil {
+		if err := os.Remove(src); err != nil {
+			return fmt.Errorf("created destination %q but could not remove original %q; leaving duplicate: %w", dst, src, err)
+		}
+		return nil
+	} else {
+		if os.IsExist(err) {
+			return errDestinationExists
+		}
+		if !isLikelyLinkUnsupportedOrCrossDevice(err) {
+			return err
+		}
+	}
+
+	// Fallback for filesystems where hard links are unavailable or cross-device moves.
+	// Destination is opened with O_EXCL, so concurrent workers cannot overwrite each other.
+	if err := copyFilePreserveNoOverwrite(src, dst); err != nil {
+		if os.IsExist(err) {
+			return errDestinationExists
+		}
+		return err
+	}
+	if err := os.Remove(src); err != nil {
+		return fmt.Errorf("copied to %q but could not remove original %q; leaving duplicate: %w", dst, src, err)
+	}
+	return nil
+}
+
+func isLikelyLinkUnsupportedOrCrossDevice(err error) bool {
+	return errors.Is(err, syscall.EXDEV) ||
+		errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.ENOSYS) ||
+		errors.Is(err, syscall.ENOTSUP)
+}
+
+func copyFilePreserveNoOverwrite(src, dst string) error {
 	st, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
+	if !st.Mode().IsRegular() {
+		return fmt.Errorf("refusing to move non-regular file: %q", src)
+	}
+
 	in, err := os.Open(src)
 	if err != nil {
 		return err
@@ -1581,13 +1718,17 @@ func copyFilePreserve(src, dst string) error {
 	}
 
 	_, copyErr := io.Copy(out, in)
+	syncErr := out.Sync()
 	closeErr := out.Close()
-	if copyErr != nil {
+	if copyErr != nil || syncErr != nil || closeErr != nil {
+		// This removes only the incomplete destination created by this function.
 		_ = os.Remove(dst)
-		return copyErr
-	}
-	if closeErr != nil {
-		_ = os.Remove(dst)
+		if copyErr != nil {
+			return copyErr
+		}
+		if syncErr != nil {
+			return syncErr
+		}
 		return closeErr
 	}
 
@@ -1596,10 +1737,31 @@ func copyFilePreserve(src, dst string) error {
 	return nil
 }
 
+func isSubpath(root, child string) bool {
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	childAbs, err := filepath.Abs(child)
+	if err != nil {
+		return false
+	}
+	rootClean := filepath.Clean(rootAbs)
+	childClean := filepath.Clean(childAbs)
+	if rootClean == childClean {
+		return true
+	}
+	rel, err := filepath.Rel(rootClean, childClean)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
 /* -------------------- Text helpers -------------------- */
 
-// underscores AND hyphens are kept as part of tokens.
-// we only normalize whitespace-like separators to spaces.
+// Whitespace separates tokens. Underscores and hyphens stay inside tokens, so
+// "xy-zohin5" is one token and folder "xy" will not match it.
 func normalizeStem(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.Map(func(r rune) rune {
@@ -1620,7 +1782,6 @@ func tokenize(s string) []string {
 	}
 	parts := strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) })
 	for i := range parts {
-		// do NOT trim underscores or hyphens
 		parts[i] = strings.Trim(parts[i], `"'“”‘’.,;:!`)
 	}
 	var out []string
@@ -1642,7 +1803,8 @@ func normalizeCandidate(s string) string {
 func sanitizeFolderName(s string) string {
 	s = strings.TrimSpace(s)
 	s = strings.Trim(s, `/\`)
-	s = strings.ReplaceAll(s, string(os.PathSeparator), "_")
+	s = strings.ReplaceAll(s, "/", "_")
+	s = strings.ReplaceAll(s, "\\", "_")
 	if s == "." || s == ".." {
 		return ""
 	}
