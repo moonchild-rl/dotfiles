@@ -4,9 +4,8 @@
 
 gdu
 btop
-fd
 dysk
-zellij
+fd
 
 #### Fun
 
@@ -31,6 +30,7 @@ lazygit
 tealdeer
 atuin
 stow
+zellij
 
 ### Special
 
