@@ -3,13 +3,25 @@
 # Run with --apply to perform the sync.
 #
 # Usage:
-#   backup-external
-#   backup-external --apply
+#   backup-external SRC DST
+#   backup-external --apply SRC DST
 
 set -euo pipefail
 
-SRC="/path/to/source"
-DST="/path/to/destination"
+APPLY=0
+
+if [[ "${1:-}" == "--apply" ]]; then
+  APPLY=1
+  shift
+fi
+
+[[ $# -eq 2 ]] || {
+  echo "Usage: $(basename "$0") [--apply] SRC DST" >&2
+  exit 2
+}
+
+SRC="$1"
+DST="$2"
 
 # Basic sanity checks
 [[ -d "$SRC" ]] || { echo "Source is not a directory: $SRC"; exit 1; }
@@ -24,7 +36,7 @@ DST_REAL="$(realpath "$DST")"
   exit 1
 }
 
-if [[ "${1:-}" == "--apply" ]]; then
+if [[ "$APPLY" -eq 1 ]]; then
   rsync -aivh --delete "$SRC_REAL"/ "$DST_REAL"/
 else
   rsync -aivh --delete --dry-run "$SRC_REAL"/ "$DST_REAL"/
