@@ -2,7 +2,7 @@
 
 ### Fix if Win+5 opens an App instead of the next Workspace
 
- Disable favorite Apps
+Disable favorite Apps
 
 ```bash
 for i in {1..9}; do
@@ -10,7 +10,7 @@ for i in {1..9}; do
 done
 ```
 
- Then the Extension `Space Bar` handles switching to Workspaces with Super+Number
+Then the Extension `Space Bar` handles switching to Workspaces with Super+Number
 
 ### Open Files (nautilus) in new windows
 

@@ -4,7 +4,7 @@
 
 `App Icons Taskbar` was exported through the App Icons Taskbar extension preferences.
 
-Restore it through the extension’s own import/load button or via:
+Restore App Icons Taskbar through the extension’s own import/load button or via:
 
 ```bash
 dconf load /org/gnome/shell/extensions/aztaskbar/ < "$HOME/dotfiles/.extras/gnome/extensions/App Icons Taskbar"
