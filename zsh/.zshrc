@@ -8,6 +8,10 @@ if (( $+commands[tldr] && $+commands[shuf] )); then
     tldr --quiet "$tldr_cmd"
   fi
 fi
+# Print a random ASCII cat
+if (( $+commands[meow] )); then
+  meow
+fi
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 # Initialization code that may require console input (password prompts, [y/n]
@@ -130,7 +134,10 @@ fi
 
 # Atuin shell history
 if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
-  eval "$(atuin init zsh --disable-up-arrow)"
+  eval "$(atuin init zsh)"
+  ZSH_AUTOSUGGEST_STRATEGY=(atuin completion)
+  # Disable zsh_history as i use atuin
+  unset HISTFILE
 fi
 
 # Load modular zsh fragments in sorted order
