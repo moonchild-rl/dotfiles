@@ -27,7 +27,8 @@ export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 export ZSH="$HOME/.oh-my-zsh"
 
 # Powerlevel10k
-ZSH_THEME="powerlevel10k/powerlevel10k"
+# ZSH_THEME="powerlevel10k/powerlevel10k"
+ZSH_THEME=""
 
 # Set list of themes to pick from when loading at random
 # Setting this variable when ZSH_THEME=random will cause zsh to load
@@ -125,7 +126,7 @@ export LESSHISTFILE='-'
 # - $ZSH_CUSTOM/aliases.zsh
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+# [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
 
 # To make zoxide work
 if (( $+commands[zoxide] )); then
@@ -135,9 +136,16 @@ fi
 # Atuin shell history
 if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
   eval "$(atuin init zsh)"
+  # Grey zsh_autosuggestions
   ZSH_AUTOSUGGEST_STRATEGY=(atuin completion)
-  # Disable zsh_history as i use atuin
+  # Do not use the completion strategy once the current buffer contains a URL.
+  ZSH_AUTOSUGGEST_COMPLETION_IGNORE='*://*'
+  # Disable zsh_history
   unset HISTFILE
+fi
+
+if (( $+commands[starship] )); then
+  eval "$(starship init zsh)"
 fi
 
 # Load modular zsh fragments in sorted order

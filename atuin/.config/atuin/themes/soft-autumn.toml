@@ -1,0 +1,24 @@
+[theme]
+name = "soft-autumn"
+parent = "default"
+
+[colors]
+# Successful/info-ish text, including likely time/status coloring.
+AlertInfo = "#6A8759" # muted olive/sage green
+
+# Failed commands AND selected row highlight.
+# Atuin currently uses AlertError for the selected history row too.
+AlertError = "#A34D14" # burnt orange / brown-orange
+
+# Warnings: warm amber.
+AlertWarn = "#B0893B" # ochre / amber
+
+# General attention color.
+Important = "#C47A35" # pumpkin / autumn orange
+Title = "#C47A35"
+
+# Preview/support text below [ GLOBAL ] and possibly the time column,
+# depending on how your Atuin version maps UI fields.
+Annotation = "#6A8759"
+Guidance = "#6A8759"
+Muted = "#6A8759"
