@@ -80,14 +80,14 @@ inline_height = 20
 ## the maximum number of lines the interface should take up
 ## when atuin is invoked from a shell up-key binding
 ## the accepted values are identical to those of "inline_height"
-inline_height_shell_up_key_binding = 12
+inline_height_shell_up_key_binding = 11
 
 ## Invert the UI - put the search bar at the top , Default to `false`
 # invert = false
 
 ## enable or disable showing a preview of the selected command
 ## useful when the command is longer than the terminal width and is cut off
-# show_preview = true
+show_preview = false
 
 ## what to do when the escape key is pressed when searching
 ## possible values: return-original, return-query
@@ -108,7 +108,7 @@ inline_height_shell_up_key_binding = 12
 
 ## Show numeric shortcuts (1..9) beside list items in the TUI
 ## set to false to hide the moving numbers if you find them distracting
-show_numeric_shortcuts = false # Alt + <Number> would select that command instantly
+show_numeric_shortcuts = true # Alt + <Number> would select that command instantly
 
 ## default history list format - can also be specified with the --format arg
 # history_format = "{time}\t{command}\t{duration}"
@@ -367,7 +367,7 @@ name = "soft-autumn"
 ## Make directory expand instead of command:
 # columns = ["duration", "time", { type = "directory", expand = true }, { type = "command", expand = false }]
 ## Mine:
-columns = ["time", "command"]
+columns = ["command"]
 
 [logs]
 dir = "~/.local/state/atuin/logs"

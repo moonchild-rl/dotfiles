@@ -135,11 +135,40 @@ fi
 
 # Atuin shell history
 if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
-  eval "$(atuin init zsh)"
+  # Keep Atuin's Up-arrow binding; replace only Ctrl-R.
+  eval "$(atuin init zsh --disable-ctrl-r)"
+
+  atuin_fzf_history_widget() {
+    local selected
+
+    selected="$(
+      atuin history list --cmd-only --reverse |
+        awk '!seen[$0]++' |
+        fzf --height=40% \
+            --layout=default \
+            --scheme=history \
+            --bind='ctrl-r:toggle-sort' \
+            --multi \
+            --query "$LBUFFER"
+    )"
+
+    if [[ -n "$selected" ]]; then
+      BUFFER="$selected"
+      CURSOR=${#BUFFER}
+    fi
+
+    zle reset-prompt
+  }
+
+  zle -N atuin_fzf_history_widget
+  bindkey '^R' atuin_fzf_history_widget
+
   # Grey zsh_autosuggestions
   ZSH_AUTOSUGGEST_STRATEGY=(atuin completion)
+
   # Do not use the completion strategy once the current buffer contains a URL.
   ZSH_AUTOSUGGEST_COMPLETION_IGNORE='*://*'
+
   # Disable zsh_history
   unset HISTFILE
 fi
