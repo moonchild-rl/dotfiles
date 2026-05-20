@@ -137,19 +137,30 @@ fi
 if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
   # Keep Atuin's Up-arrow binding; replace only Ctrl-R.
   eval "$(atuin init zsh --disable-ctrl-r)"
-
+  
+  # Make Ctrl-R use fzf but with atuin's db
   atuin_fzf_history_widget() {
     local selected
+    local -a fzf_opts
+
+    fzf_opts=(
+      --read0
+      --height=40%
+      --layout=default
+      --scheme=history
+      --bind='ctrl-r:toggle-sort,alt-r:toggle-raw'
+      --wrap
+      --wrap-sign=$'\t↳ '
+      --highlight-line
+      --multi
+      --query "$LBUFFER"
+    )
 
     selected="$(
-      atuin history list --cmd-only --reverse |
-        awk '!seen[$0]++' |
-        fzf --height=40% \
-            --layout=default \
-            --scheme=history \
-            --bind='ctrl-r:toggle-sort' \
-            --multi \
-            --query "$LBUFFER"
+      atuin history list --cmd-only --print0 |
+        perl -0 -e 'print reverse <>' |
+        perl -0 -ne 'print if !$seen{$_}++' |
+        fzf "${fzf_opts[@]}"
     )"
 
     if [[ -n "$selected" ]]; then
