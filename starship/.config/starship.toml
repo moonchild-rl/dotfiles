@@ -4,138 +4,90 @@ format = """
 [](#9A348E)\
 $os\
 [](bg:#DA627D fg:#9A348E)\
-$directory\
+[](bg:#DA627D)\
 [](fg:#DA627D bg:#FCA17D)\
+$directory\
+[](fg:#FCA17D bg:#86BBD8)\
+[](bg:#86BBD8)\
+[](fg:#86BBD8 bg:#06969A)\
 $git_branch\
 $git_status\
-[](fg:#FCA17D bg:#86BBD8)\
-[](fg:#86BBD8 bg:#06969A)\
-$docker_context\
+${custom.git_filler}\
 [](fg:#06969A bg:#33658A)\
-[ ](fg:#33658A)\
+$docker_context\
+[](fg:#33658A)\
 """
 
-# Disable the blank line at the start of the prompt
-# add_newline = false
+right_format = """$status$cmd_duration"""
 
-# You can also replace your username with a neat symbol like   or disable this
-# and use the os module below
-[username]
-show_always = true
-style_user = "bg:#9A348E"
-style_root = "bg:#9A348E"
-format = '[$user ]($style)'
-disabled = true
-
-# An alternative to the username module which displays a symbol that
-# represents the current operating system
 [os]
-disabled = false # Disabled by default
-style = "bg:#9A348E"
+disabled = false
+style = "bold fg:#11111B bg:#9A348E"
 format = '[ $symbol ]($style)'
 
 [os.symbols]
-Fedora = "󰣛"
+Fedora = ""
 
 [directory]
-style = "bg:#DA627D"
-format = "[ $path ]($style)"
-truncation_length = 3
-truncation_symbol = "…/"
+style = "fg:#11111B bg:#FCA17D"
+format = "[  $path ]($style)"
+home_symbol = "~"
+truncation_length = 4
+truncation_symbol = "⋯/"
+truncate_to_repo = false
 
-# Here is how you can shorten some long paths by text replacement
-# similar to mapped_locations in Oh My Posh:
 [directory.substitutions]
 "Documents" = "󰈙 "
 "Downloads" = " "
 "Music" = " "
 "Pictures" = " "
-# Keep in mind that the order matters. For example:
-# "Important Documents" = " 󰈙 "
-# will not be replaced, because "Documents" was already substituted before.
-# So either put "Important Documents" before "Documents" or use the substituted version:
-# "Important 󰈙 " = " 󰈙 "
-
-[c]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[cpp]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[docker_context]
-symbol = " "
-style = "bg:#06969A"
-format = '[ $symbol $context ]($style)'
-
-[elixir]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[elm]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
+"Projects" = "󰲋 "
+"Coding" = "󰲋 "
 
 [git_branch]
 symbol = ""
-style = "bg:#FCA17D"
+style = "fg:#11111B bg:#06969A"
 format = '[ $symbol $branch ]($style)'
 
 [git_status]
-style = "bg:#FCA17D"
+style = "fg:#11111B bg:#06969A"
 format = '[$all_status$ahead_behind ]($style)'
 
-[golang]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
+conflicted = '=${count} '
+ahead = '⇡${count} '
+behind = '⇣${count} '
+diverged = '⇕⇡${ahead_count}⇣${behind_count} '
+untracked = '?${count} '
+stashed = '\$${count} '
+modified = '!${count} '
+staged = '+${count} '
+renamed = '»${count} '
+deleted = '✘${count} '
+typechanged = '~${count} '
 
-[gradle]
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[haskell]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[java]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[julia]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[nodejs]
-symbol = ""
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[nim]
-symbol = "󰆥 "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[rust]
-symbol = ""
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[scala]
-symbol = " "
-style = "bg:#86BBD8"
-format = '[ $symbol ($version) ]($style)'
-
-[time]
+[custom.git_filler]
+when = '! git rev-parse --is-inside-work-tree >/dev/null 2>&1'
+command = 'printf "ᓚᘏᗢ"'
+style = "fg:#11111B bg:#06969A"
+format = '[ $output ]($style)'
 disabled = false
-time_format = "%R" # Hour:Minute Format
-style = "bg:#33658A"
-format = '[ ♥ $time ]($style)'
+
+[docker_context]
+symbol = " "
+style = "fg:#11111B bg:#33658A"
+format = '[ $symbol $context ]($style)'
+
+[cmd_duration]
+min_time = 100
+format = '[$duration](bold yellow)'
+show_milliseconds = true
+disabled = false
+
+[status]
+disabled = false
+format = '[$symbol$common_meaning$signal_name$maybe_int ]($style)'
+symbol = '✘ '
+success_symbol = '✔ '
+success_style = 'bold green'
+failure_style = 'bold red'
+map_symbol = true

@@ -1,0 +1,23 @@
+[theme]
+name = "fzf-soft"
+parent = "default"
+
+[colors]
+# Selected row + error/failure-ish text.
+# Atuin currently uses AlertError for the current selection.
+AlertError = "#D8DEE9"
+
+# Info/time-ish text. Cool grey-blue, similar to many fzf setups.
+AlertInfo = "#81A1C1"
+
+# Warnings: muted amber, not bright red/orange.
+AlertWarn = "#D7BA7D"
+
+# Important/title accents.
+Important = "#E5E9F0"
+Title = "#E5E9F0"
+
+# Preview/support/help text below [ GLOBAL ].
+Annotation = "#8A8F98"
+Guidance = "#8A8F98"
+Muted = "#8A8F98"
