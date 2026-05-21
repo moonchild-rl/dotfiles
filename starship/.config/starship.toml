@@ -1,21 +1,20 @@
+# My theme based on pastel-powerline (and inspired by p10k with rounded corners)
 "$schema" = 'https://starship.rs/config-schema.json'
 
 format = """
 [](#9A348E)\
 $os\
 [](bg:#DA627D fg:#9A348E)\
-[](bg:#DA627D)\
 [](fg:#DA627D bg:#FCA17D)\
-$directory\
 [](fg:#FCA17D bg:#86BBD8)\
-[](bg:#86BBD8)\
+$docker_context\
 [](fg:#86BBD8 bg:#06969A)\
+$directory\
+${custom.git_left}\
 $git_branch\
 $git_status\
-${custom.git_filler}\
-[](fg:#06969A bg:#33658A)\
-$docker_context\
-[](fg:#33658A)\
+${custom.git_right}\
+${custom.no_git_right}\
 """
 
 right_format = """$status$cmd_duration"""
@@ -29,7 +28,7 @@ format = '[ $symbol ]($style)'
 Fedora = ""
 
 [directory]
-style = "fg:#11111B bg:#FCA17D"
+style = "fg:#11111B bg:#06969A"
 format = "[  $path ]($style)"
 home_symbol = "~"
 truncation_length = 4
@@ -44,13 +43,37 @@ truncate_to_repo = false
 "Projects" = "󰲋 "
 "Coding" = "󰲋 "
 
+# Teal -> blue transition, only inside Git repos.
+[custom.git_left]
+when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1'
+command = 'printf ""'
+style = "fg:#06969A bg:#33658A"
+format = '[$output]($style)'
+disabled = false
+
+# Blue closing cap, only inside Git repos.
+[custom.git_right]
+when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1'
+command = 'printf ""'
+style = "fg:#33658A"
+format = '[$output ]($style)'
+disabled = false
+
+# Teal closing cap, only outside Git repos.
+[custom.no_git_right]
+when = '! git rev-parse --is-inside-work-tree >/dev/null 2>&1'
+command = 'printf ""'
+style = "fg:#06969A"
+format = '[$output ]($style)'
+disabled = false
+
 [git_branch]
 symbol = ""
-style = "fg:#11111B bg:#06969A"
+style = "fg:#11111B bg:#33658A"
 format = '[ $symbol $branch ]($style)'
 
 [git_status]
-style = "fg:#11111B bg:#06969A"
+style = "fg:#11111B bg:#33658A"
 format = '[$all_status$ahead_behind ]($style)'
 
 conflicted = '=${count} '
@@ -65,17 +88,10 @@ renamed = '»${count} '
 deleted = '✘${count} '
 typechanged = '~${count} '
 
-[custom.git_filler]
-when = '! git rev-parse --is-inside-work-tree >/dev/null 2>&1'
-command = 'printf "ᓚᘏᗢ"'
-style = "fg:#11111B bg:#06969A"
-format = '[ $output ]($style)'
-disabled = false
-
 [docker_context]
 symbol = " "
-style = "fg:#11111B bg:#33658A"
-format = '[ $symbol $context ]($style)'
+style = "fg:#11111B bg:#86BBD8"
+format = '[ $symbol$context ]($style)'
 
 [cmd_duration]
 min_time = 100
