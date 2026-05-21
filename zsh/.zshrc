@@ -13,10 +13,13 @@ if (( $+commands[meow] )); then
   meow
 fi
 
+# Prompt selection: starship | p10k | none
+# Test in new shell once with: ZSH_PROMPT=p10k exec zsh
+ZSH_PROMPT="${ZSH_PROMPT:-starship}"
+
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-# Initialization code that may require console input (password prompts, [y/n]
-# confirmations, etc.) must go above this block; everything else may go below.
-if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+if [[ "$ZSH_PROMPT" == "p10k" ]] &&
+   [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
@@ -26,9 +29,25 @@ export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 
-# Powerlevel10k
-# ZSH_THEME="powerlevel10k/powerlevel10k"
+# Theme
 ZSH_THEME=""
+case "$ZSH_PROMPT" in
+  p10k)
+    if [[ -r "${ZSH_CUSTOM:-$ZSH/custom}/themes/powerlevel10k/powerlevel10k.zsh-theme" ]] ||
+       [[ -r "$ZSH/themes/powerlevel10k/powerlevel10k.zsh-theme" ]]; then
+      ZSH_THEME="powerlevel10k/powerlevel10k"
+    else
+      print -u2 "zsh: ZSH_PROMPT=p10k, but Powerlevel10k theme was not found. Continuing without an Oh My Zsh theme."
+    fi
+    ;;
+  starship|none)
+    ZSH_THEME=""
+    ;;
+  *)
+    print -u2 "zsh: unknown ZSH_PROMPT='$ZSH_PROMPT'. Expected: starship, p10k, or none. Continuing without an Oh My Zsh theme."
+    ZSH_THEME=""
+    ;;
+esac
 
 # Set list of themes to pick from when loading at random
 # Setting this variable when ZSH_THEME=random will cause zsh to load
@@ -126,7 +145,13 @@ export LESSHISTFILE='-'
 # - $ZSH_CUSTOM/aliases.zsh
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-# [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+if [[ "$ZSH_PROMPT" == "p10k" ]]; then
+  if [[ -r "$HOME/.p10k.zsh" ]]; then
+    source "$HOME/.p10k.zsh"
+  else
+    print -u2 "zsh: ZSH_PROMPT=p10k, but $HOME/.p10k.zsh was not found."
+  fi
+fi
 
 # To make zoxide work
 if (( $+commands[zoxide] )); then
@@ -184,7 +209,8 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
   unset HISTFILE
 fi
 
-if (( $+commands[starship] )); then
+# Starship
+if [[ "$ZSH_PROMPT" == "starship" ]] && (( $+commands[starship] )); then
   eval "$(starship init zsh)"
 fi
 
