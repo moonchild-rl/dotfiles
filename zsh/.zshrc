@@ -204,6 +204,12 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
 
   # Do not use the completion strategy once the current buffer contains a URL.
   ZSH_AUTOSUGGEST_COMPLETION_IGNORE='*://*'
+  
+  # Make Tab do nothing. No local file/dir completion and no errors/hangs.
+  _downloader_wrapper_no_completion() {
+    return 0
+  }
+  compdef _downloader_wrapper_no_completion burl
 
   # Disable zsh_history
   unset HISTFILE

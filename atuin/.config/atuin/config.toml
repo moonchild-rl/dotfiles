@@ -123,10 +123,10 @@ show_numeric_shortcuts = false # Alt + <Number> would select that command instan
 #   "^innocuous-cmd .*--secret=.+",
 # ]
 history_filter = [
-  "^yt-dlp(\\s|$)",
-  "^yt(\\s|$)",
-  "^gallery-dl(\\s|$)",
-  "^burl(\\s|$)",
+  "^yt-dlp\\b.*://",
+  "^yt\\b.*://",
+  "^gallery-dl\\b.*://",
+  "^burl\\b.*://",
   "^cd .*webs",
 ]
 

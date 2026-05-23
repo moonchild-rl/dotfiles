@@ -3,21 +3,24 @@ name = "fzf-soft"
 parent = "default"
 
 [colors]
-# Selected row + error/failure-ish text.
-# Atuin currently uses AlertError for the current selection.
-AlertError = "#D8DEE9"
+# Normal command rows: slightly dimmer than pure white.
+Base = "#B8C0CC"
 
-# Info/time-ish text. Cool grey-blue, similar to many fzf setups.
+# Current selection in Atuin's TUI.
+# Atuin currently uses AlertError for this.
+AlertError = "#FFFFFF"
+
+# Info/time-ish text.
 AlertInfo = "#81A1C1"
 
-# Warnings: muted amber, not bright red/orange.
+# Warnings.
 AlertWarn = "#D7BA7D"
 
 # Important/title accents.
 Important = "#E5E9F0"
 Title = "#E5E9F0"
 
-# Preview/support/help text below [ GLOBAL ].
-Annotation = "#8A8F98"
-Guidance = "#8A8F98"
-Muted = "#8A8F98"
+# Preview/support/help text.
+Annotation = "#7E8490"
+Guidance = "#7E8490"
+Muted = "#7E8490"
