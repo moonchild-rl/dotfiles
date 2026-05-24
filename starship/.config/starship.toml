@@ -67,23 +67,23 @@ truncation_symbol = "⋯/"
 truncate_to_repo = false
 
 [directory.substitutions]
-"Documents" = "󰈙 "
-"Downloads" = " "
-"Music" = " "
-"Pictures" = " "
-"Projects" = "󰲋 "
-"Coding" = "󰲋 "
+"Documents" = "󰈙"
+"Downloads" = ""
+"Music" = ""
+"Pictures" = ""
+"Projects" = "󰲋"
+"Coding" = "󰲋"
 
 # Directory blue -> Git green, only in clean Git repos.
 [custom.git_clean_left]
-when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git diff --quiet --ignore-submodules --cached -- && git diff --quiet --ignore-submodules -- && test -z "$(git ls-files --others --exclude-standard)"'
+when = 'test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true && git diff --quiet --ignore-submodules --cached -- && git diff --quiet --ignore-submodules -- && test -z "$(git ls-files --others --exclude-standard)"'
 command = 'true'
 style = "fg:#0D73CC bg:#19CB00"
 format = "[\uE0B4]($style)"
 disabled = false
 
 [custom.git_clean]
-when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git diff --quiet --ignore-submodules --cached -- && git diff --quiet --ignore-submodules -- && test -z "$(git ls-files --others --exclude-standard)"'
+when = 'test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true && git diff --quiet --ignore-submodules --cached -- && git diff --quiet --ignore-submodules -- && test -z "$(git ls-files --others --exclude-standard)"'
 command = """
 branch="$(git branch --show-current 2>/dev/null)"
 if [ -z "$branch" ]; then branch="$(git describe --tags --exact-match 2>/dev/null)"; fi
@@ -107,11 +107,11 @@ fi
 printf " %s%s" "$branch" "$ahead_behind"
 """
 style = "fg:#111111 bg:#19CB00"
-format = "[ $output]($style)"
+format = "[ $output ]($style)"
 disabled = false
 
 [custom.git_clean_right]
-when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && git diff --quiet --ignore-submodules --cached -- && git diff --quiet --ignore-submodules -- && test -z "$(git ls-files --others --exclude-standard)"'
+when = 'test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true && git diff --quiet --ignore-submodules --cached -- && git diff --quiet --ignore-submodules -- && test -z "$(git ls-files --others --exclude-standard)"'
 command = 'true'
 style = "fg:#19CB00"
 format = "[\uE0B4]($style) "
@@ -119,14 +119,14 @@ disabled = false
 
 # Directory blue -> Git yellow, only in dirty Git repos.
 [custom.git_dirty_left]
-when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && { ! git diff --quiet --ignore-submodules --cached -- || ! git diff --quiet --ignore-submodules -- || test -n "$(git ls-files --others --exclude-standard)"; }'
+when = 'test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true && { ! git diff --quiet --ignore-submodules --cached -- || ! git diff --quiet --ignore-submodules -- || test -n "$(git ls-files --others --exclude-standard)"; }'
 command = 'true'
 style = "fg:#0D73CC bg:#CECB00"
 format = "[\uE0B4]($style)"
 disabled = false
 
 [custom.git_dirty]
-when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && { ! git diff --quiet --ignore-submodules --cached -- || ! git diff --quiet --ignore-submodules -- || test -n "$(git ls-files --others --exclude-standard)"; }'
+when = 'test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true && { ! git diff --quiet --ignore-submodules --cached -- || ! git diff --quiet --ignore-submodules -- || test -n "$(git ls-files --others --exclude-standard)"; }'
 command = """
 branch="$(git branch --show-current 2>/dev/null)"
 if [ -z "$branch" ]; then branch="$(git describe --tags --exact-match 2>/dev/null)"; fi
@@ -162,7 +162,7 @@ format = "[ $output]($style)"
 disabled = false
 
 [custom.git_dirty_right]
-when = 'git rev-parse --is-inside-work-tree >/dev/null 2>&1 && { ! git diff --quiet --ignore-submodules --cached -- || ! git diff --quiet --ignore-submodules -- || test -n "$(git ls-files --others --exclude-standard)"; }'
+when = 'test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" = true && { ! git diff --quiet --ignore-submodules --cached -- || ! git diff --quiet --ignore-submodules -- || test -n "$(git ls-files --others --exclude-standard)"; }'
 command = 'true'
 style = "fg:#CECB00"
 format = "[\uE0B4]($style) "
@@ -170,7 +170,7 @@ disabled = false
 
 # Directory blue closing cap, only outside Git repos.
 [custom.no_git_right]
-when = '! git rev-parse --is-inside-work-tree >/dev/null 2>&1'
+when = 'test "$(git rev-parse --is-inside-work-tree 2>/dev/null)" != true'
 command = 'true'
 style = "fg:#0D73CC"
 format = "[\uE0B4]($style) "
