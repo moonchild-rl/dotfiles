@@ -16,13 +16,6 @@ burl() {
   }
 
   local convert=1
-  local opts_file="$HOME/.config/bdfr/opts/burl-addition.yaml"
-
-  if [[ ! -r "$opts_file" ]]; then
-    print -u2 "burl: missing BDFR opts file: $opts_file"
-    return 1
-  fi
-
   local args=()
   local item
 
@@ -46,13 +39,19 @@ burl() {
   marker="$(mktemp)" || return 1
 
   bdfr download . \
-    --opts "$opts_file" \
     --folder-scheme '' \
     "${args[@]}"
 
   local status=$?
   if (( status != 0 )); then
     rm -f "$marker"
+
+    print -u2 ""
+    print -u2 "========================================"
+    print -u2 "burl: BDFR FAILED with exit code $status"
+    print -u2 "========================================"
+    print -u2 "burl: check the BDFR output above for rate limits, invalid URLs, deleted posts, or auth/API errors."
+
     return "$status"
   fi
 

@@ -62,7 +62,7 @@ RedHatEnterprise = "󱄛"
 style = "fg:#FFFFFF bg:#0D73CC"
 format = "[  ](fg:#FFFFFF bg:#0D73CC)[$path ](bold fg:#FFFFFF bg:#0D73CC)"
 home_symbol = "~"
-truncation_length = 4
+truncation_length = 5
 truncation_symbol = "⋯/"
 truncate_to_repo = false
 
