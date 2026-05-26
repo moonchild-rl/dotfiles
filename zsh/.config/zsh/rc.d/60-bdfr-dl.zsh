@@ -50,7 +50,6 @@ burl() {
     print -u2 "========================================"
     print -u2 "burl: BDFR FAILED with exit code $status"
     print -u2 "========================================"
-    print -u2 "burl: check the BDFR output above for rate limits, invalid URLs, deleted posts, or auth/API errors."
 
     return "$status"
   fi
