@@ -238,10 +238,12 @@ if [[ -s "$NVM_DIR/bash_completion" ]]; then
   source "$NVM_DIR/bash_completion" # This loads nvm bash_completion
 fi
 
+# Auto-start Zellij for interactive local shells only
 if [[ -o interactive ]] &&
    [[ -z "$ZELLIJ" ]] &&
    [[ -z "$NO_ZELLIJ" ]] &&
    [[ -z "$SSH_CONNECTION" ]] &&
-   [[ -z "$SSH_TTY" ]]; then
+   [[ -z "$SSH_TTY" ]] &&
+   [[ "$TERM_PROGRAM" != "vscode" ]]; then
   zellij attach --create main
 fi
