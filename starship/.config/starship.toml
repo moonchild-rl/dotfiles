@@ -277,7 +277,7 @@ format = "[ $symbol ]($style)"
 
 [shlvl]
 disabled = false
-threshold = 3
+threshold = 4
 symbol = "↕ "
 style = "bold fg:#FCA17D"
 format = "[ $symbol$shlvl ]($style)"
