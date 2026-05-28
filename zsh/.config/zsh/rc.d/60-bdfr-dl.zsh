@@ -42,45 +42,49 @@ burl() {
     --folder-scheme '' \
     "${args[@]}"
 
-  local status=$?
-  if (( status != 0 )); then
+  local rc=$?
+  if (( rc != 0 )); then
     rm -f "$marker"
 
     print -u2 ""
     print -u2 "========================================"
-    print -u2 "burl: BDFR FAILED with exit code $status"
+    print -u2 "burl: BDFR FAILED with exit code $rc"
     print -u2 "========================================"
 
-    return "$status"
+    return "$rc"
   fi
 
   if (( convert )); then
-    if (( $+commands[ffmpeg] )); then
-      find . -type f -cnewer "$marker" -iname '*.gif' -exec sh -c '
-        for f do
-          out="${f%.*}.mp4"
+	if (( $+commands[ffmpeg] )); then
+	  find . -type f -cnewer "$marker" -iname '*.gif' -exec sh -c '
+	    for f do
+	      out="${f%.*}.mp4"
 
-          if [ -e "$out" ]; then
-            echo "Skipping GIF conversion, output exists: $out" >&2
-            continue
-          fi
+	      if [ -e "$out" ]; then
+		echo "Skipping GIF conversion, output exists: $out" >&2
+		continue
+	      fi
 
-          ffmpeg -hide_banner -loglevel error -i "$f" \
-            -movflags +faststart -pix_fmt yuv420p "$out" || {
-              rm -f -- "$out"
-              continue
-            }
+	      ffmpeg -hide_banner -loglevel error -i "$f" \
+		-movflags +faststart -pix_fmt yuv420p "$out" || {
+		  rm -f -- "$out"
+		  continue
+		}
 
-          if [ "$(stat -c%s "$out")" -lt "$(stat -c%s "$f")" ]; then
-            rm -- "$f"
-          else
-            rm -- "$out"
-          fi
-        done
-      ' sh {} +
-    else
-      print -u2 "burl: ffmpeg not found; skipping GIF -> MP4 conversion"
-    fi
+	      old_size=$(stat -c%s "$f")
+	      new_size=$(stat -c%s "$out")
+
+	      if [ "$new_size" -lt "$old_size" ]; then
+		echo "Converted GIF to smaller MP4: $f -> $out ($old_size -> $new_size bytes)" >&2
+		rm -- "$f"
+	      else
+		rm -- "$out"
+	      fi
+	    done
+	  ' sh {} +
+	else
+	  print -u2 "burl: ffmpeg not found; skipping GIF -> MP4 conversion"
+	fi
 
     if (( $+commands[cwebp] )); then
       find . -type f -cnewer "$marker" \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \) -exec sh -c '
@@ -97,11 +101,15 @@ burl() {
             continue
           }
 
-          if [ "$(stat -c%s "$out")" -lt "$(stat -c%s "$f")" ]; then
-            rm -- "$f"
-          else
-            rm -- "$out"
-          fi
+	  old_size=$(stat -c%s "$f")
+	  new_size=$(stat -c%s "$out")
+
+	  if [ "$new_size" -lt "$old_size" ]; then
+	    echo "Converted: $f -> $out ($old_size -> $new_size bytes)" >&2
+	    rm -- "$f"
+	  else
+	    rm -- "$out"
+	  fi
         done
       ' sh {} +
     else
