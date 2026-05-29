@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+# Usage:
+#   yt-playlist-tsv PLAYLIST_URL
+#   yt-playlist-tsv --name my-playlist PLAYLIST_URL
+#   yt-playlist-tsv --cookies-from-browser firefox PLAYLIST_URL
+#   yt-playlist-tsv --cookies ~/path/to/cookies.txt PLAYLIST_URL
+#
+# Output:
+#   ~/Downloads/yt-backup/inventories/<playlist-id-or-name>.tsv
+#
+# What it does:
+#   Creates or updates a TSV inventory for a YouTube playlist.
+#   Stores video ID, canonical URL, title, uploader, and timestamps.
+#   On later runs, marks videos as:
+#     new
+#     ok
+#     title_changed
+#     uploader_changed
+#     metadata_changed
+#     missing_or_unavailable
+#
+# Notes:
+#   missing_or_unavailable does not necessarily mean deleted.
+#   It can also mean private, removed from playlist, region-blocked,
+#   unavailable without cookies, or a temporary extraction failure.
+
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+BASE_DIR = Path.home() / "Downloads" / "yt-backup"
+INVENTORY_DIR = BASE_DIR / "inventories"
+YTDLP = "yt-dlp"
+
+FIELDS = [
+    "status",
+    "id",
+    "url",
+    "title",
+    "uploader",
+    "playlist_index",
+    "first_seen_utc",
+    "last_seen_utc",
+    "previous_title",
+    "previous_uploader",
+    "note",
+]
+
+SAFE_STEM_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def die(message: str, code: int = 1) -> None:
+    print(f"error: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def require_tool(name: str) -> None:
+    if shutil.which(name) is None:
+        die(f"required command not found in PATH: {name}")
+
+
+def validate_http_url(value: str) -> None:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        die("expected an http(s) playlist URL")
+
+
+def playlist_stem(url: str, override: str | None) -> str:
+    if override:
+        stem = override
+    else:
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query)
+
+        if qs.get("list"):
+            stem = qs["list"][0]
+        else:
+            stem = "playlist-" + hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+
+    stem = SAFE_STEM_RE.sub("_", stem).strip("._-")
+    return stem or "playlist"
+
+
+def run_ytdlp(url: str, args: argparse.Namespace) -> dict:
+    cmd = [
+        YTDLP,
+        "--no-warnings",
+        "--no-progress",
+        "--no-abort-on-error",
+        "-J",
+        url,
+    ]
+
+    if args.cookies:
+        cmd[1:1] = ["--cookies", str(args.cookies)]
+
+    if args.cookies_from_browser:
+        cmd[1:1] = ["--cookies-from-browser", args.cookies_from_browser]
+
+    proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    if proc.returncode != 0:
+        print("warning: yt-dlp returned a non-zero exit code; using parsed JSON if available", file=sys.stderr)
+        if proc.stderr.strip():
+            print(proc.stderr.strip(), file=sys.stderr)
+
+    out = proc.stdout.strip()
+
+    if not out:
+        die("yt-dlp produced no JSON output")
+
+    line = [line for line in out.splitlines() if line.strip()][-1]
+
+    try:
+        return json.loads(line)
+    except json.JSONDecodeError as exc:
+        die(f"could not parse yt-dlp JSON: {exc}")
+
+
+def video_id_from_entry(entry: dict) -> str:
+    vid = str(entry.get("id") or "").strip()
+
+    if vid:
+        return vid
+
+    webpage_url = str(entry.get("webpage_url") or entry.get("url") or "")
+    parsed = urlparse(webpage_url)
+
+    if parsed.netloc.endswith("youtube.com"):
+        return parse_qs(parsed.query).get("v", [""])[0]
+
+    if parsed.netloc.endswith("youtu.be"):
+        return parsed.path.strip("/")
+
+    return ""
+
+
+def canonical_url(video_id: str, entry: dict) -> str:
+    if video_id:
+        return f"https://www.youtube.com/watch?v={video_id}"
+
+    return str(entry.get("webpage_url") or entry.get("url") or "")
+
+
+def clean_cell(value: object) -> str:
+    if value is None:
+        return ""
+
+    return str(value).replace("\t", " ").replace("\r", " ").replace("\n", " ").strip()
+
+
+def current_rows(info: dict, now: str) -> list[dict[str, str]]:
+    entries = info.get("entries") or []
+    rows: list[dict[str, str]] = []
+    skipped = 0
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            skipped += 1
+            continue
+
+        vid = video_id_from_entry(entry)
+
+        if not vid:
+            skipped += 1
+            continue
+
+        rows.append(
+            {
+                "status": "new",
+                "id": clean_cell(vid),
+                "url": clean_cell(canonical_url(vid, entry)),
+                "title": clean_cell(entry.get("title")),
+                "uploader": clean_cell(
+                    entry.get("uploader")
+                    or entry.get("channel")
+                    or entry.get("uploader_id")
+                    or entry.get("channel_id")
+                ),
+                "playlist_index": clean_cell(entry.get("playlist_index") or entry.get("playlist_autonumber")),
+                "first_seen_utc": now,
+                "last_seen_utc": now,
+                "previous_title": "",
+                "previous_uploader": "",
+                "note": "",
+            }
+        )
+
+    if skipped:
+        print(f"warning: skipped {skipped} playlist entries without usable metadata", file=sys.stderr)
+
+    return rows
+
+
+def read_previous(path: Path) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f, delimiter="\t")
+
+        if not reader.fieldnames or "id" not in reader.fieldnames:
+            die(f"existing TSV has no 'id' column: {path}")
+
+        rows = {}
+
+        for row in reader:
+            vid = (row.get("id") or "").strip()
+
+            if vid:
+                rows[vid] = {field: clean_cell(row.get(field, "")) for field in FIELDS}
+
+        return rows
+
+
+def merge_rows(
+    current: list[dict[str, str]],
+    previous: dict[str, dict[str, str]],
+    now: str,
+) -> tuple[list[dict[str, str]], list[str]]:
+    messages: list[str] = []
+    seen: set[str] = set()
+    merged: list[dict[str, str]] = []
+
+    for row in current:
+        vid = row["id"]
+        old = previous.get(vid)
+        seen.add(vid)
+
+        if not old:
+            row["status"] = "new"
+            messages.append(f"NEW: {row['title'] or vid} ({vid})")
+        else:
+            row["first_seen_utc"] = old.get("first_seen_utc") or now
+
+            changed = []
+
+            if row["title"] and old.get("title") and row["title"] != old.get("title"):
+                row["previous_title"] = old.get("title", "")
+                changed.append("title")
+
+            if row["uploader"] and old.get("uploader") and row["uploader"] != old.get("uploader"):
+                row["previous_uploader"] = old.get("uploader", "")
+                changed.append("uploader")
+
+            if changed:
+                row["status"] = f"{changed[0]}_changed" if len(changed) == 1 else "metadata_changed"
+                details = ", ".join(changed)
+                messages.append(
+                    f"CHANGED {details}: {old.get('title') or vid} -> {row['title'] or vid} ({vid})"
+                )
+            else:
+                row["status"] = "ok"
+                row["previous_title"] = old.get("previous_title", "")
+                row["previous_uploader"] = old.get("previous_uploader", "")
+
+        merged.append(row)
+
+    for vid, old in sorted(previous.items(), key=lambda item: item[1].get("playlist_index", "")):
+        if vid in seen:
+            continue
+
+        missing = {field: old.get(field, "") for field in FIELDS}
+        missing["status"] = "missing_or_unavailable"
+        missing["last_seen_utc"] = old.get("last_seen_utc", "")
+        missing["note"] = (
+            "Seen in an earlier inventory, but absent now. Could be deleted, private, "
+            "removed, region-blocked, or an extraction/auth failure."
+        )
+
+        merged.append(missing)
+        messages.append(f"MISSING: {old.get('title') or vid} ({vid})")
+
+    return merged, messages
+
+
+def write_tsv(path: Path, rows: list[dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        backup = path.with_suffix(path.suffix + ".bak." + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
+        shutil.copy2(path, backup)
+
+    tmp = path.with_suffix(path.suffix + ".tmp")
+
+    with tmp.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, delimiter="\t", fieldnames=FIELDS, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    os.replace(tmp, path)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Create/update a TSV inventory for a YouTube playlist.")
+    parser.add_argument("playlist_url", help="YouTube playlist URL")
+    parser.add_argument("--name", help="stable filename stem under ~/Downloads/yt-backup/inventories/", default=None)
+    parser.add_argument("--cookies", type=Path, help="Netscape cookies.txt for playlists requiring login")
+    parser.add_argument("--cookies-from-browser", help="browser name/profile, for example: firefox or chromium")
+
+    args = parser.parse_args()
+
+    require_tool(YTDLP)
+    validate_http_url(args.playlist_url)
+
+    now = utc_now()
+    stem = playlist_stem(args.playlist_url, args.name)
+    out_path = INVENTORY_DIR / f"{stem}.tsv"
+
+    info = run_ytdlp(args.playlist_url, args)
+    rows = current_rows(info, now)
+
+    if not rows:
+        die("no usable videos found in playlist output")
+
+    previous = read_previous(out_path)
+    merged, messages = merge_rows(rows, previous, now)
+
+    write_tsv(out_path, merged)
+
+    print(f"wrote: {out_path}")
+    print(f"current videos: {len(rows)}; previous records: {len(previous)}; total TSV rows: {len(merged)}")
+
+    if messages:
+        print("changes:")
+        for msg in messages:
+            print(f"  {msg}")
+    else:
+        print("changes: none")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
