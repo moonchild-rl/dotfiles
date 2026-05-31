@@ -67,3 +67,38 @@ Maybe remove GNOME Terminal's Nautilus entry on Fedora:
 sudo dnf remove gnome-terminal-nautilus
 nautilus -q
 ```
+
+-----
+
+To have a shortcut
+
+```
+mkdir -p ~/.local/share/nautilus/scripts ~/.config/nautilus
+
+cat > ~/.local/share/nautilus/scripts/open-kitty-here <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+uri="${NAUTILUS_SCRIPT_CURRENT_URI:-}"
+
+if [[ "$uri" == file://* ]]; then
+  dir="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1][7:]))' "$uri")"
+else
+  dir="$PWD"
+fi
+
+env NO_ZELLIJ=1 kitty --detach --directory "$dir"
+EOF
+
+chmod +x ~/.local/share/nautilus/scripts/open-kitty-here
+```
+
+Then bind it (F4 in this case):
+
+```
+cat > ~/.config/nautilus/scripts-accels <<'EOF'
+F4 open-kitty-here
+EOF
+
+nautilus -q
+```

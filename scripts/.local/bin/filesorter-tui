@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# filesorter-tui /path/to/folder
+#
+# Wrapper for the filesorter-tui Go program.
+# Keeps the Go source in the dotfiles repo, but always uses one stable config:
+#   ${XDG_CONFIG_HOME:-$HOME/.config}/filesorter-tui/sorter.config.yaml
+#
+# This avoids creating sorter.config.yaml in whatever directory the command is
+# run from. All arguments are forwarded to the Go program. Passing your own
+# -config path still overrides this default.
+
+set -euo pipefail
+
+src="$HOME/dotfiles/.extras/src/filesorter-tui"
+
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/filesorter-tui"
+default_config="$config_dir/sorter.config.yaml"
+mkdir -p "$config_dir"
+
+has_config=0
+for arg in "$@"; do
+  if [[ "$arg" == "-config" || "$arg" == --config=* || "$arg" == "-config="* ]]; then
+    has_config=1
+    break
+  fi
+done
+
+if (( has_config )); then
+  exec go run "$src" "$@"
+fi
+
+if (($# > 0)) && [[ "$1" != -* ]]; then
+  dir="$1"
+  shift
+  exec go run "$src" "$dir" -config "$default_config" "$@"
+else
+  exec go run "$src" -config "$default_config" "$@"
+fi

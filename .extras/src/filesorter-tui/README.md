@@ -69,3 +69,9 @@ sorter.config.yaml
 ```
 
 By default this file is created in the current working directory.
+
+When run through the `filesorter-tui` wrapper, the tool uses this config file:
+
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/filesorter-tui/sorter.config.yaml
+```

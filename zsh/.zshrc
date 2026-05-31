@@ -110,7 +110,7 @@ plugins=(git sudo fzf fzf-tab zsh-autosuggestions fast-syntax-highlighting)
 
 source "$ZSH/oh-my-zsh.sh"
 
-# For using end key after paste without putting in a suggestion
+# For using end key after paste without putting in a suggestion (Space also works)
 bindkey '\eOF' .end-of-line
 
 # User configuration

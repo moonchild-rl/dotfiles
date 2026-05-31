@@ -19,8 +19,8 @@ missingfiles() {
   fi
 
   local out1 out2
-  out1=$(rsync -ani --ignore-existing --out-format='%n' "$dir1/" "$dir2/" | grep -vx './')
-  out2=$(rsync -ani --ignore-existing --out-format='%n' "$dir2/" "$dir1/" | grep -vx './')
+  out1=$(rsync -ani --ignore-existing --out-format='%n' "$dir1/" "$dir2/" | grep -vx './' | grep -v '/$' || true)
+  out2=$(rsync -ani --ignore-existing --out-format='%n' "$dir2/" "$dir1/" | grep -vx './' | grep -v '/$' || true)
 
   echo "Present in $dir1 but missing in $dir2:"
   [ -n "$out1" ] && printf '%s\n' "$out1" || echo "(none)"
