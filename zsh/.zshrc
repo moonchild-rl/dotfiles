@@ -160,8 +160,7 @@ fi
 
 # Atuin shell history
 if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
-  # Keep Atuin's Up-arrow binding; replace only Ctrl-R.
-  eval "$(atuin init zsh --disable-ctrl-r)"
+  eval "$(atuin init zsh --disable-ctrl-r --disable-up-arrow)"
   
   # Make Ctrl-R use fzf but with atuin's db
   atuin_fzf_history_widget() {
@@ -198,6 +197,71 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
 
   zle -N atuin_fzf_history_widget
   bindkey '^R' atuin_fzf_history_widget
+
+  # This block restores normal up-arrow behavior but with atuin's db.
+  typeset -ga _atuin_arrow_history=()
+  typeset -gi _atuin_arrow_index=0
+  typeset -g  _atuin_arrow_saved_buffer=""
+
+  _atuin_arrow_load_history() {
+    _atuin_arrow_history=()
+
+    local cmd
+    while IFS= read -r -d $'\0' cmd; do
+      [[ -n "$cmd" ]] && _atuin_arrow_history+=("$cmd")
+    done < <(
+      atuin history list --cmd-only --print0 --limit 1000 2>/dev/null |
+        perl -0 -e 'print reverse <>' |
+        perl -0 -ne 'print if !$seen{$_}++'
+    )
+  }
+
+  _atuin_arrow_up() {
+    # First Up press for this prompt: load recent Atuin history.
+    if (( _atuin_arrow_index == 0 )); then
+      _atuin_arrow_saved_buffer="$BUFFER"
+      _atuin_arrow_load_history
+    fi
+
+    if (( ${#_atuin_arrow_history} == 0 )); then
+      return 0
+    fi
+
+    if (( _atuin_arrow_index < ${#_atuin_arrow_history} )); then
+      (( _atuin_arrow_index++ ))
+      BUFFER="${_atuin_arrow_history[$_atuin_arrow_index]}"
+      CURSOR=${#BUFFER}
+    fi
+  }
+
+  _atuin_arrow_down() {
+    if (( _atuin_arrow_index > 1 )); then
+      (( _atuin_arrow_index-- ))
+      BUFFER="${_atuin_arrow_history[$_atuin_arrow_index]}"
+      CURSOR=${#BUFFER}
+    elif (( _atuin_arrow_index == 1 )); then
+      _atuin_arrow_index=0
+      BUFFER="$_atuin_arrow_saved_buffer"
+      CURSOR=${#BUFFER}
+    fi
+  }
+
+  _atuin_arrow_reset() {
+    _atuin_arrow_index=0
+    _atuin_arrow_saved_buffer=""
+    _atuin_arrow_history=()
+  }
+
+  zle -N _atuin_arrow_up
+  zle -N _atuin_arrow_down
+
+  bindkey '^[[A' _atuin_arrow_up
+  bindkey '^[OA'  _atuin_arrow_up
+  bindkey '^[[B' _atuin_arrow_down
+  bindkey '^[OB'  _atuin_arrow_down
+
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _atuin_arrow_reset
 
   # Grey zsh_autosuggestions
   ZSH_AUTOSUGGEST_STRATEGY=(atuin completion)
