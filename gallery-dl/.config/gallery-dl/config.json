@@ -2,6 +2,7 @@
   "extractor": {
     "base-directory": "/home/moon/Downloads/gallery-dl",
     "archive": "/home/moon/.local/share/gallery-dl/archive.sqlite3",
+    "archive-pragma": ["journal_mode=WAL", "synchronous=NORMAL"],
     "skip": true,
     "path-restrict": "windows+",
     "path-strip": "auto",
@@ -15,10 +16,11 @@
         "all"
       ],
       "size": ["large", "medium", "small"],
+      "include": ["timeline"],
       "timeline": {
         "strategy": "tweets"
       },
-      "text-tweets": false,
+      "text-tweets": true,
       "retweets": false,
       "videos": true,
       "pinned": false,
@@ -34,7 +36,7 @@
         }
       ]
     },
-    
+
     "instagram": {
       "cookies": [
         "firefox",
@@ -44,25 +46,54 @@
         ".instagram.com"
       ],
       "browser": "firefox",
-      "include": ["reels"],
+      "include": ["posts", "reels"],
       "videos": "ytdl",
-      "directory": ["instagram", "{username}", "reels"],
-      "filename": "{media_id}_{shortcode}.{extension}"
+      "directory": ["instagram", "{username}"],
+      "filename": "{shortcode}_{num}.{extension}",
+      "postprocessors": [
+        {
+          "name": "metadata",
+          "event": "post",
+          "mode": "json",
+          "filename": "{shortcode}.json"
+        }
+      ]
     },
-    
+
     "reddit": {
       "videos": "ytdl",
-      "comments": 0
+      "comments": 1,
+      "morecomments": false,
+      "selftext": true,
+      "embeds": false,
+      "recursion": 0,
+      "previews": true,
+      "parent-directory": true,
+      "parent-metadata": "_reddit",
+      "category-transfer": true,
+      "directory": ["reddit", "{author}"],
+      "filename": "{title[:120]}_{id}_{num}.{extension}",
+      "postprocessors": [
+        {
+          "name": "metadata",
+          "event": "post",
+          "mode": "custom",
+          "filename": "{title[:120]}_{id}.txt",
+          "content-format": "{title}\n\n{selftext}\n"
+        }
+      ]
     }
   },
-  
+
   "downloader": {
     "ytdl": {
-      "format": "bv*[height<=720]+ba/b[height<=720]/b[height<=720]/best[height<=720]",
+      "format": "bv*+ba/b",
       "cmdline-args": [
         "--format-sort-reset",
-        "-S", "height:720,+size,+br",
-        "--merge-output-format", "mp4"
+        "-S",
+        "height:720,+size,+br",
+        "--merge-output-format",
+        "mp4"
       ]
     }
   }
