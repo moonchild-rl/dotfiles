@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+uri="${NAUTILUS_SCRIPT_CURRENT_URI:-}"
+
+if [[ "$uri" == file://* ]]; then
+  dir="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1][7:]))' "$uri")"
+else
+  dir="$PWD"
+fi
+
+env NO_ZELLIJ=1 kitty --detach --directory "$dir"
