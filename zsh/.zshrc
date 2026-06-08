@@ -161,7 +161,18 @@ fi
 # Atuin shell history
 if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
   eval "$(atuin init zsh --disable-ctrl-r --disable-up-arrow)"
-  
+ 
+  _atuin_redraw() {
+    # Refresh syntax highlighting plugins after programmatically changing BUFFER.
+    if (( $+functions[_fast-highlight] )); then
+      _fast-highlight 2>/dev/null || true
+    elif (( $+functions[_zsh_highlight] )); then
+      _zsh_highlight 2>/dev/null || true
+    fi
+
+    zle -R
+  }
+
   # Make Ctrl-R use fzf but with atuin's db
   atuin_fzf_history_widget() {
     local selected
@@ -192,7 +203,7 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
       CURSOR=${#BUFFER}
     fi
 
-    zle reset-prompt
+    _atuin_redraw
   }
 
   zle -N atuin_fzf_history_widget
@@ -210,8 +221,12 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
     while IFS= read -r -d $'\0' cmd; do
       [[ -n "$cmd" ]] && _atuin_arrow_history+=("$cmd")
     done < <(
-      atuin history list --cmd-only --print0 --limit 1000 2>/dev/null |
-        perl -0 -e 'print reverse <>' |
+      atuin history list --cmd-only --print0 2>/dev/null |
+        perl -0 -e '
+          @cmds = <>;
+          @cmds = @cmds[-1000..-1] if @cmds > 1000;
+          print reverse @cmds;
+        ' |
         perl -0 -ne 'print if !$seen{$_}++'
     )
   }
@@ -224,6 +239,7 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
     fi
 
     if (( ${#_atuin_arrow_history} == 0 )); then
+      _atuin_redraw
       return 0
     fi
 
@@ -232,6 +248,8 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
       BUFFER="${_atuin_arrow_history[$_atuin_arrow_index]}"
       CURSOR=${#BUFFER}
     fi
+
+    _atuin_redraw
   }
 
   _atuin_arrow_down() {
@@ -244,6 +262,8 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
       BUFFER="$_atuin_arrow_saved_buffer"
       CURSOR=${#BUFFER}
     fi
+
+    _atuin_redraw
   }
 
   _atuin_arrow_reset() {
