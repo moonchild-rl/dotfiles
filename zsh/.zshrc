@@ -343,5 +343,11 @@ if [[ -o interactive ]] &&
    [[ -z "$SSH_CONNECTION" ]] &&
    [[ -z "$SSH_TTY" ]] &&
    [[ "$TERM_PROGRAM" != "vscode" ]]; then
-  zellij attach --create main
+   
+  # plugin
+  if [ -f "$HOME/.config/zellij/plugins/zjstatus.wasm" ]; then
+    zellij attach --create main options --default-layout rounded
+  else
+    zellij attach --create main
+  fi
 fi
