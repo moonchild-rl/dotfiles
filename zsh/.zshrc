@@ -173,6 +173,20 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
     zle -R
   }
 
+  # Reset prompt used to prevent prompt disappearing after exiting fzf with escape
+  _atuin_full_redraw() {
+    # Refresh syntax highlighting plugins after programmatically changing BUFFER.
+    if (( $+functions[_fast-highlight] )); then
+      _fast-highlight 2>/dev/null || true
+    elif (( $+functions[_zsh_highlight] )); then
+      _zsh_highlight 2>/dev/null || true
+    fi
+
+    zle reset-prompt
+    zle -R
+    return 0
+  }
+
   # Make Ctrl-R use fzf but with atuin's db
   atuin_fzf_history_widget() {
     local selected
@@ -203,7 +217,7 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
       CURSOR=${#BUFFER}
     fi
 
-    _atuin_redraw
+    _atuin_full_redraw
   }
 
   zle -N atuin_fzf_history_widget

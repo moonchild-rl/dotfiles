@@ -62,7 +62,7 @@
 
     "reddit": {
       "videos": "ytdl",
-      "comments": 1,
+      "comments": 0,
       "morecomments": false,
       "selftext": true,
       "embeds": false,
@@ -71,6 +71,8 @@
       "parent-directory": true,
       "parent-metadata": "_reddit",
       "category-transfer": true,
+      "sleep-request": "1.0-1.5",
+      "sleep-429": "60-120",
       "directory": ["reddit", "{author}"],
       "filename": "{title[:120]}_{id}_{num}.{extension}",
       "postprocessors": [

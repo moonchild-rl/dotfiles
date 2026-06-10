@@ -1,0 +1,3 @@
+promptToReturnFromSubprocess: false
+# If Lazygit is launched as a Zellij command pane in a layout, also add close_on_exit=true:
+# pane command="lazygit" close_on_exit=true
