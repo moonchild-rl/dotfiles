@@ -1,10 +1,10 @@
 # bdfr download . --opts ~/.config/bdfr/opts/redditors.yaml
-directory: .
 submitted: true
 
 user:
   - username1
 
+sort: new
 folder_scheme: "{REDDITOR}"
 
 no_dupes: true
