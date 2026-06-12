@@ -24,6 +24,8 @@ themes {
             emphasis_2 255 121 198
             emphasis_3 98 114 164
         }
+        // Same as Zellij's built-in Dracula theme, except ribbon_unselected is muted.
+	// This affects the bright unselected key/mode blocks in the bottom status/help bar.
         ribbon_unselected {
             base 248 248 242
             background 68 71 90

@@ -1,51 +1,17 @@
-tab_template name="ui" {
-    pane size=1 borderless=true {
-        plugin location="file:~/.config/zellij/plugins/zjstatus.wasm" {
-            color_bg      "#282a36"
-            color_fg      "#f8f8f2"
-            color_dim     "#6272a4"
-            color_purple  "#bd93f9"
-            color_green   "#50fa7b"
-
-            format_left   "#[bg=$bg]{tabs}"
-            format_center "#[bg=$bg]"
-            format_right  "#[bg=$bg]{swap_layout}#[fg=$dim,bg=$bg] Alt+[ / Alt+] "
-            format_space  "#[bg=$bg]"
-
-            tab_normal    "#[fg=$dim,bg=$bg] {index}:{name} "
-            tab_active    "#[fg=$green,bg=$bg]#[fg=$bg,bg=$green,bold] {index}:{name} #[fg=$green,bg=$bg]"
-            tab_separator "#[fg=$dim,bg=$bg] "
-
-            tab_fullscreen_indicator "□ "
-            tab_sync_indicator " "
-            tab_floating_indicator "󰉈 "
-
-            swap_layout_format        "#[fg=$purple,bg=$bg]#[fg=$bg,bg=$purple,bold] {name} #[fg=$purple,bg=$bg]"
-            swap_layout_hide_if_empty "true"
-        }
-    }
-
-    children
-
-    pane size=1 borderless=true {
-        plugin location="status-bar"
-    }
-}
-
 swap_tiled_layout name="vertical" {
-    ui max_panes=5 {
+    tab max_panes=5 {
         pane split_direction="vertical" {
             pane
             pane { children; }
         }
     }
-    ui max_panes=8 {
+    tab max_panes=8 {
         pane split_direction="vertical" {
             pane { children; }
             pane { pane; pane; pane; pane; }
         }
     }
-    ui max_panes=12 {
+    tab max_panes=12 {
         pane split_direction="vertical" {
             pane { children; }
             pane { pane; pane; pane; pane; }
@@ -55,17 +21,17 @@ swap_tiled_layout name="vertical" {
 }
 
 swap_tiled_layout name="horizontal" {
-    ui max_panes=4 {
+    tab max_panes=4 {
         pane
         pane
     }
-    ui max_panes=8 {
+    tab max_panes=8 {
         pane {
             pane split_direction="vertical" { children; }
             pane split_direction="vertical" { pane; pane; pane; pane; }
         }
     }
-    ui max_panes=12 {
+    tab max_panes=12 {
         pane {
             pane split_direction="vertical" { children; }
             pane split_direction="vertical" { pane; pane; pane; pane; }
@@ -75,7 +41,7 @@ swap_tiled_layout name="horizontal" {
 }
 
 swap_tiled_layout name="stacked" {
-    ui min_panes=5 {
+    tab min_panes=5 {
         pane split_direction="vertical" {
             pane
             pane stacked=true { children; }
