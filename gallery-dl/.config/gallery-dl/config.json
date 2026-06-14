@@ -84,6 +84,29 @@
           "content-format": "{title}\n\n{selftext}\n"
         }
       ]
+    },
+
+    "bluesky": {
+      "include": ["posts"],
+      "reposts": false,
+      "quoted": false,
+      "videos": true,
+
+      "post-filter": "not (count == 0 and locals().get('embed', {}).get('external') and re.fullmatch(r'\\s*(?:https?://)?\\S+\\.\\S+\\s*', text or ''))",
+
+      "directory": ["bluesky", "{author[handle]}"],
+      "filename": "{post_id}_{author[handle]}_{num}.{extension}",
+
+      "postprocessors": [
+        {
+          "name": "metadata",
+          "event": "post",
+          "mode": "custom",
+          "filename": "{post_id}_{author[handle]}.txt",
+          "skip": true,
+          "content-format": "{text}\n\n---\npost: https://bsky.app/profile/{author[handle]}/post/{post_id}\nauthor: {author[handle]}\ncreated: {createdAt}\n"
+        }
+      ]
     }
   },
 
