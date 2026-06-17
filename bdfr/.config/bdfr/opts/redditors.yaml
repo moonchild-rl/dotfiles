@@ -5,7 +5,10 @@ user:
   - username1
 
 sort: new
+limit: 40
+
 folder_scheme: "{REDDITOR}"
+file_scheme: "{REDDITOR}_{TITLE}_{POSTID}"
 
 no_dupes: true
 search_existing: true
