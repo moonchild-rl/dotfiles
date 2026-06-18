@@ -1,21 +1,46 @@
-# This first block are commands that have to go before instant prompt
-(( $+commands[fastfetch] )) && fastfetch
+# Resolve the real location of this file. Keeps relative includes working when ~/.zshrc is a GNU stow symlink.
+ZSH_DOTFILES_DIR="${ZSH_DOTFILES_DIR:-${${(%):-%N}:A:h}}"
+
+# Source machine/startup options if they exist.
+if [[ -r "$ZSH_DOTFILES_DIR/togglefile.zsh" ]]; then
+  source "$ZSH_DOTFILES_DIR/togglefile.zsh"
+fi
+
+# Defaults
+ZSH_PROMPT="${ZSH_PROMPT:-none}"
+ZSH_STARTUP_FASTFETCH="${ZSH_STARTUP_FASTFETCH:-0}"
+ZSH_STARTUP_RANDOM_TLDR="${ZSH_STARTUP_RANDOM_TLDR:-0}"
+ZSH_STARTUP_MEOW="${ZSH_STARTUP_MEOW:-0}"
+ZSH_STARTUP_ZELLIJ="${ZSH_STARTUP_ZELLIJ:-0}"
+ZSH_USE_ZOXIDE="${ZSH_USE_ZOXIDE:-0}"
+ZSH_USE_ATUIN="${ZSH_USE_ATUIN:-0}"
+ZSH_PRIVATE_FILE="${ZSH_PRIVATE_FILE:-}"
+
+# This is a bit scuffed
+if [[ "$ZSH_PROMPT" == "p10k" && "$ZSH_STARTUP_ZELLIJ" == "1" ]]; then
+  print -P "%F{yellow}zsh:%f disabling Zellij autostart: ZSH_PROMPT=p10k is incompatible with late Zellij startup."
+  ZSH_STARTUP_ZELLIJ=0
+fi
+
+# This block are commands that have to go before instant prompt
+if [[ "$ZSH_STARTUP_FASTFETCH" == "1" ]] && (( $+commands[fastfetch] )); then
+  fastfetch
+fi
+
 # Display a random tealdeer page
-if (( $+commands[tldr] && $+commands[shuf] )); then
+if [[ "$ZSH_STARTUP_RANDOM_TLDR" == "1" ]] &&
+   (( $+commands[tldr] && $+commands[shuf] )); then
   tldr_cmd=$(tldr --quiet --list 2>/dev/null | shuf -n1)
   if [[ -n "$tldr_cmd" ]]; then
     echo "\n\033[1;34m============= \033[0m$tldr_cmd\033[1;34m =============\033[0m"
     tldr --quiet "$tldr_cmd"
   fi
 fi
+
 # Print a random ASCII cat
-if (( $+commands[meow] )); then
+if [[ "$ZSH_STARTUP_MEOW" == "1" ]] && (( $+commands[meow] )); then
   meow
 fi
-
-# Prompt selection: starship | p10k | none
-# Test in new shell once with: ZSH_PROMPT=p10k exec zsh
-ZSH_PROMPT="${ZSH_PROMPT:-starship}"
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
 if [[ "$ZSH_PROMPT" == "p10k" ]] &&
@@ -104,7 +129,7 @@ COMPLETION_WAITING_DOTS="true"
 # Would you like to use another custom folder than $ZSH/custom?
 # ZSH_CUSTOM=/path/to/new-custom-folder
 
-# Which plugins would you like to load? 
+# Which plugins would you like to load?
 # Add wisely, as too many plugins slow down shell startup.
 plugins=(git sudo fzf fzf-tab zsh-autosuggestions fast-syntax-highlighting)
 
@@ -154,14 +179,14 @@ if [[ "$ZSH_PROMPT" == "p10k" ]]; then
 fi
 
 # To make zoxide work
-if (( $+commands[zoxide] )); then
+if [[ "$ZSH_USE_ZOXIDE" == "1" ]] && (( $+commands[zoxide] )); then
   eval "$(zoxide init zsh)"
 fi
 
 # Atuin shell history
-if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
+if [[ "$ZSH_USE_ATUIN" == "1" ]] && (( $+commands[atuin] )); then
   eval "$(atuin init zsh --disable-ctrl-r --disable-up-arrow)"
- 
+
   _atuin_redraw() {
     # Refresh syntax highlighting plugins after programmatically changing BUFFER.
     if (( $+functions[_fast-highlight] )); then
@@ -302,7 +327,7 @@ if (( $+commands[atuin] )) && [[ -z ${DISABLE_ATUIN:-} ]]; then
 
   # Do not use the completion strategy once the current buffer contains a URL.
   ZSH_AUTOSUGGEST_COMPLETION_IGNORE='*://*'
-  
+
   # Make Tab do nothing. No local file/dir completion and no errors/hangs.
   _downloader_wrapper_no_completion() {
     return 0
@@ -324,24 +349,17 @@ for f in ~/.config/zsh/rc.d/*.zsh(N); do
 done
 
 # Source file with private components for .zshrc
-if [[ -f ~/.zshrc-private.zsh ]]; then
-  source ~/.zshrc-private.zsh
-fi
-
-export NVM_DIR="$HOME/.nvm"
-if [[ -s "$NVM_DIR/nvm.sh" ]]; then
-  source "$NVM_DIR/nvm.sh" # This loads nvm
-fi
-if [[ -s "$NVM_DIR/bash_completion" ]]; then
-  source "$NVM_DIR/bash_completion" # This loads nvm bash_completion
+if [[ -n "$ZSH_PRIVATE_FILE" && -r "$ZSH_PRIVATE_FILE" ]]; then
+  source "$ZSH_PRIVATE_FILE"
 fi
 
 # Auto-start Zellij for interactive local shells only
-if [[ -o interactive ]] &&
+if [[ "$ZSH_STARTUP_ZELLIJ" == "1" ]] &&
+   [[ -o interactive ]] &&
    [[ -z "$ZELLIJ" ]] &&
-   [[ -z "$NO_ZELLIJ" ]] &&
    [[ -z "$SSH_CONNECTION" ]] &&
    [[ -z "$SSH_TTY" ]] &&
-   [[ "$TERM_PROGRAM" != "vscode" ]]; then
+   [[ "$TERM_PROGRAM" != "vscode" ]] &&
+   (( $+commands[zellij] )); then
   zellij attach --create main
 fi
