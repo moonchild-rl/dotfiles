@@ -1,0 +1,49 @@
+{
+  // Privacy / experiments / AI
+  "chat.disableAIFeatures": true,
+  "telemetry.telemetryLevel": "off",
+  "telemetry.feedback.enabled": false,
+  "workbench.enableExperiments": false,
+  "python.experiments.enabled": false,
+
+  // General behavior
+  "workbench.startupEditor": "none",
+  "workbench.settings.editor": "json",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 2000,
+
+  // Formatting
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "modificationsIfAvailable",
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+
+  // File hygiene
+  "files.insertFinalNewline": true,
+  "files.trimTrailingWhitespace": true,
+  "files.trimFinalNewlines": true,
+  "files.eol": "\n",
+
+  // Editor readability
+  "editor.rulers": [88, 100],
+  "editor.renderWhitespace": "boundary",
+  "editor.renderControlCharacters": true,
+  "editor.guides.bracketPairs": true,
+
+  // Terminal / UI
+  "terminal.integrated.fontFamily": "'MesloLGS NF', 'Noto Sans Mono', monospace",
+  "workbench.iconTheme": "material-icon-theme",
+
+  // Language-specific overrides
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.ruff": "explicit",
+      "source.organizeImports.ruff": "explicit",
+    },
+  },
+
+  "[markdown]": {
+    "files.trimTrailingWhitespace": false,
+  },
+}

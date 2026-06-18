@@ -1,0 +1,11 @@
+charliermarsh.ruff
+esbenp.prettier-vscode
+golang.go
+mechatroner.rainbow-csv
+ms-python.debugpy
+ms-python.python
+ms-python.vscode-pylance
+ms-python.vscode-python-envs
+openai.chatgpt
+pkief.material-icon-theme
+tamasfe.even-better-toml
