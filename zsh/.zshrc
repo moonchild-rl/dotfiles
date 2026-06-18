@@ -349,7 +349,9 @@ for f in ~/.config/zsh/rc.d/*.zsh(N); do
 done
 
 # Source file with private components for .zshrc
-if [[ -n "$ZSH_PRIVATE_FILE" && -r "$ZSH_PRIVATE_FILE" ]]; then
+if [[ -n "$ZSH_PRIVATE_FILE" ]] &&
+   [[ -r "$ZSH_PRIVATE_FILE" ]] &&
+   [[ "${TERM_PROGRAM:-}" != "vscode" ]]; then
   source "$ZSH_PRIVATE_FILE"
 fi
 
