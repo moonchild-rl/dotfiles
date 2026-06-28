@@ -1,6 +1,8 @@
 charliermarsh.ruff
+dracula-theme.theme-dracula
 esbenp.prettier-vscode
 golang.go
+kdl-org.kdl
 mechatroner.rainbow-csv
 ms-python.debugpy
 ms-python.python
