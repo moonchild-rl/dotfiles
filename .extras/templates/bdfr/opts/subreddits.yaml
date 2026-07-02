@@ -1,4 +1,4 @@
-# bdfr download ~/Downloads/subreddits/ --opts ~/.config/bdfr/opts/subreddits.yaml
+# bdfr download ~/Downloads/subreddits/ --opts ~/path/to/this/opts/subreddits.yaml
 
 subreddit:
   - subreddit1

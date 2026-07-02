@@ -1,0 +1,5 @@
+# ~/.config/yt-dlp/config
+
+--windows-filenames
+--embed-thumbnail
+--sponsorblock-mark sponsor,selfpromo,interaction,intro,outro

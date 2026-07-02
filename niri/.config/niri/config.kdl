@@ -7,7 +7,7 @@ input {
           options "caps:escape,altwin:swap_lalt_lwin,grp:win_space_toggle,eurosign:e,grp_led:caps"
         }
     }
-    focus-follows-mouse //max-scroll-amount="0%"
+    focus-follows-mouse max-scroll-amount="0%"
     //mod-key "Alt"
     //mod-key-nested "Super"
 }

@@ -1,4 +1,4 @@
-# bdfr download ~/Downloads/redditors/ --opts ~/.config/bdfr/opts/redditors.yaml
+# bdfr download ~/Downloads/redditors/ --opts ~/path/to/this/opts/redditors.yaml
 
 submitted: true
 
