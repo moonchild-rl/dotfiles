@@ -5,6 +5,7 @@
   "telemetry.feedback.enabled": false,
   "workbench.enableExperiments": false,
   "python.experiments.enabled": false,
+  "terminal.integrated.shellIntegration.history": 0,
 
   // General behavior
   "workbench.startupEditor": "none",
@@ -13,6 +14,7 @@
   "files.autoSaveDelay": 2000,
   "files.autoSaveWhenNoErrors": true,
   "files.autoSaveWorkspaceFilesOnly": true,
+  "update.showReleaseNotes": false,
 
   // Formatting
   "editor.formatOnSave": true,
@@ -41,8 +43,8 @@
     "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
       "source.fixAll.ruff": "explicit",
-      "source.organizeImports.ruff": "explicit"
-    }
+      "source.organizeImports.ruff": "explicit",
+    },
   },
 
   "[go]": {
@@ -50,14 +52,14 @@
     "editor.formatOnSave": true,
     "editor.formatOnSaveMode": "file",
     "editor.codeActionsOnSave": {
-      "source.organizeImports": "explicit"
-    }
+      "source.organizeImports": "explicit",
+    },
   },
 
   "[markdown]": {
-    "files.trimTrailingWhitespace": false
+    "files.trimTrailingWhitespace": false,
   },
   "git.enableSmartCommit": true,
   "git.confirmSync": false,
-  "workbench.colorTheme": "Dracula Theme"
+  "workbench.colorTheme": "Dracula Theme",
 }
