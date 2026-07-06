@@ -62,4 +62,5 @@
   "git.enableSmartCommit": true,
   "git.confirmSync": false,
   "workbench.colorTheme": "Dracula Theme",
+  "git.openRepositoryInParentFolders": "always",
 }

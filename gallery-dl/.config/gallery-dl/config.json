@@ -1,17 +1,23 @@
 {
   "extractor": {
-    "base-directory": "/home/moon/Downloads/gallery-dl",
-    "archive": "/home/moon/.local/share/gallery-dl/archive.sqlite3",
+    "base-directory": "~/Downloads/gallery-dl",
+    "archive": "~/.local/share/gallery-dl/archive.sqlite3",
     "archive-pragma": ["journal_mode=WAL", "synchronous=NORMAL"],
     "skip": true,
     "path-restrict": "windows+",
     "path-strip": "auto",
     "cookies-update": true,
 
+    "ytdl": {
+      "enabled": true,
+      "format": "bv*+ba/b",
+      "cmdline-args": ["--format-sort-reset", "-S", "height:720,+size,+br"]
+    },
+
     "twitter": {
       "cookies": [
         "firefox",
-        "/home/moon/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
+        "~/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
         null,
         "all"
       ],
@@ -40,7 +46,7 @@
     "instagram": {
       "cookies": [
         "firefox",
-        "/home/moon/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
+        "~/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
         null,
         null,
         ".instagram.com"
@@ -116,9 +122,7 @@
       "cmdline-args": [
         "--format-sort-reset",
         "-S",
-        "height:720,+size,+br",
-        "--merge-output-format",
-        "mp4"
+        "height:720,+size,+br"
       ]
     }
   }
