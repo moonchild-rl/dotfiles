@@ -1,5 +1,7 @@
 charliermarsh.ruff
+dbaeumer.vscode-eslint
 dracula-theme.theme-dracula
+dvirtz.parquet-viewer
 esbenp.prettier-vscode
 golang.go
 kdl-org.kdl
