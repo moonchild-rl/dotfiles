@@ -6,3 +6,4 @@ caffeine@patapon.info
 clipboard-history@alexsaveau.dev
 search-light@icedman.github.com
 no-overview@fthx
+SmartAutoMoveNG@lauinger-clan.de
