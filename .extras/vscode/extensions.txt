@@ -12,4 +12,6 @@ ms-python.vscode-pylance
 ms-python.vscode-python-envs
 openai.chatgpt
 pkief.material-icon-theme
+shd101wyy.markdown-preview-enhanced
 tamasfe.even-better-toml
+yzhang.markdown-all-in-one

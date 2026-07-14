@@ -1,25 +1,31 @@
 {
-  // Privacy / experiments / AI
-  "chat.disableAIFeatures": true,
-  "telemetry.telemetryLevel": "off",
-  "telemetry.feedback.enabled": false,
-  "workbench.enableExperiments": false,
-  "python.experiments.enabled": false,
-  "terminal.integrated.shellIntegration.history": 0,
-
-  // General behavior
-  "workbench.startupEditor": "none",
-  "workbench.settings.editor": "json",
+  // Workflow
   "files.autoSave": "afterDelay",
-  "files.autoSaveDelay": 2000,
+  "files.autoSaveDelay": 200,
   "files.autoSaveWhenNoErrors": true,
   "files.autoSaveWorkspaceFilesOnly": true,
+  "workbench.settings.editor": "json",
+  "workbench.startupEditor": "none",
   "update.showReleaseNotes": false,
 
+  // Appearance
+  "workbench.colorTheme": "Dracula Theme",
+  "workbench.iconTheme": "material-icon-theme",
+  "terminal.integrated.fontFamily": "'MesloLGS NF', 'Noto Sans Mono', monospace",
+  "markdown-preview-enhanced.previewTheme": "vscode.css",
+  "markdown-preview-enhanced.codeBlockTheme": "auto.css",
+  "markdown-preview-enhanced.mermaidTheme": "dark",
+
+  // Editor display
+  "editor.guides.bracketPairs": true, // Favorite setting
+  "editor.rulers": [88, 100],
+  "editor.renderWhitespace": "boundary",
+  "editor.renderControlCharacters": true,
+
   // Formatting
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.formatOnSave": true,
   "editor.formatOnSaveMode": "modificationsIfAvailable",
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
 
   // File hygiene
   "files.insertFinalNewline": true,
@@ -27,15 +33,21 @@
   "files.trimFinalNewlines": true,
   "files.eol": "\n",
 
-  // Editor readability
-  "editor.rulers": [88, 100],
-  "editor.renderWhitespace": "boundary",
-  "editor.renderControlCharacters": true,
-  "editor.guides.bracketPairs": true,
+  // Git
+  "git.enableSmartCommit": true,
+  "git.confirmSync": false,
+  "git.openRepositoryInParentFolders": "always",
 
-  // Terminal / UI
-  "terminal.integrated.fontFamily": "'MesloLGS NF', 'Noto Sans Mono', monospace",
-  "workbench.iconTheme": "material-icon-theme",
+  // Privacy / experiments / retained history
+  "chat.disableAIFeatures": true,
+  "telemetry.telemetryLevel": "off",
+  "telemetry.feedback.enabled": false,
+  "workbench.enableExperiments": false,
+  "python.experiments.enabled": false,
+  "terminal.integrated.shellIntegration.history": 0,
+
+  // Extensions
+  "parquet-viewer.format": "csv",
 
   // Language-specific overrides
   "[python]": {
@@ -55,13 +67,4 @@
       "source.organizeImports": "explicit",
     },
   },
-
-  "[markdown]": {
-    "files.trimTrailingWhitespace": false,
-  },
-  "git.enableSmartCommit": true,
-  "git.confirmSync": false,
-  "workbench.colorTheme": "Dracula Theme",
-  "git.openRepositoryInParentFolders": "always",
-  "parquet-viewer.format": "csv",
 }
