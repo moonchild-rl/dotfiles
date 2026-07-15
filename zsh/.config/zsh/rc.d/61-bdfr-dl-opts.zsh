@@ -8,12 +8,12 @@
 ### bdfr-saved 250 --verbose
 ###
 ### Defaults:
-### limit: 50
+### limit: 100
 
 bdfr-saved() {
   emulate -L zsh
 
-  local limit=50
+  local limit=100
   local out="$HOME/BDFR/bdfr_posts_new"
   local -a verbose_args
   local -a args
@@ -71,19 +71,19 @@ bdfr-saved() {
 ### bdfr-redditors 100 username1
 ### bdfr-redditors 100 username1 username2 username3
 ### bdfr-redditors username1 --sort top
-### bdfr-redditors username1 --file-scheme '{REDDITOR}_{TITLE}_{POSTID}'
+### bdfr-redditors username1 --file-scheme '{TITLE}_{POSTID}_{REDDITOR}'
 ###
 ### Defaults:
-### limit: 50
+### limit: 100
 ### sort: new
-### file-scheme: {REDDITOR}_{TITLE}_{POSTID}
+### file-scheme: {TITLE}_{POSTID}_{REDDITOR}
 
 bdfr-redditors() {
   emulate -L zsh
 
-  local limit=50
+  local limit=100
   local sort="new"
-  local file_scheme="{REDDITOR}_{TITLE}_{POSTID}"
+  local file_scheme="{TITLE}_{POSTID}_{REDDITOR}"
   local out="$HOME/Downloads/redditors"
   local -a users
   local -a args
@@ -103,23 +103,28 @@ bdfr-redditors() {
     case "$1" in
       -S|--sort)
         sort="${2:-}"
+
         if [[ -z "$sort" ]]; then
           echo "Missing value for $1"
           return 1
         fi
+
         shift 2
         ;;
 
       --file-scheme)
         file_scheme="${2:-}"
+
         if [[ -z "$file_scheme" ]]; then
           echo "Missing value for --file-scheme"
           return 1
         fi
+
         if [[ "$file_scheme" != *"{POSTID}"* ]]; then
           echo "Refusing file scheme without {POSTID}, because filenames may collide."
           return 1
         fi
+
         shift 2
         ;;
 
@@ -147,9 +152,10 @@ bdfr-redditors() {
     download "$out"
     --submitted
     --sort "$sort"
-    -L "$limit"
+    --limit "$limit"
     --folder-scheme "{REDDITOR}"
     --file-scheme "$file_scheme"
+    --filename-restriction-scheme windows
     --no-dupes
     --search-existing
   )
@@ -173,6 +179,7 @@ bdfr-redditors() {
 ### bdfr-subreddits linux --file-scheme '{SUBREDDIT}_{TITLE}_{POSTID}'
 ###
 ### Defaults:
+### limit: none
 ### sort: top
 ### time: year
 ### min-score: 7000
@@ -205,41 +212,50 @@ bdfr-subreddits() {
     case "$1" in
       -S|--sort)
         sort="${2:-}"
+
         if [[ -z "$sort" ]]; then
           echo "Missing value for $1"
           return 1
         fi
+
         shift 2
         ;;
 
       -t|--time)
         time="${2:-}"
+
         if [[ -z "$time" ]]; then
           echo "Missing value for $1"
           return 1
         fi
+
         shift 2
         ;;
 
       --min-score)
         min_score="${2:-}"
+
         if [[ -z "$min_score" || "$min_score" != <-> ]]; then
           echo "Missing numeric value for --min-score"
           return 1
         fi
+
         shift 2
         ;;
 
       --file-scheme)
         file_scheme="${2:-}"
+
         if [[ -z "$file_scheme" ]]; then
           echo "Missing value for --file-scheme"
           return 1
         fi
+
         if [[ "$file_scheme" != *"{POSTID}"* ]]; then
           echo "Refusing file scheme without {POSTID}, because filenames may collide."
           return 1
         fi
+
         shift 2
         ;;
 
@@ -270,12 +286,13 @@ bdfr-subreddits() {
     --min-score "$min_score"
     --folder-scheme "{SUBREDDIT}"
     --file-scheme "$file_scheme"
+    --filename-restriction-scheme windows
     --no-dupes
     --search-existing
   )
 
   if [[ -n "$limit" ]]; then
-    args+=(-L "$limit")
+    args+=(--limit "$limit")
   fi
 
   for sub in "${subs[@]}"; do
