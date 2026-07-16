@@ -1,8 +1,0 @@
-# bdfr download ~/BDFR/bdfr_posts_new --opts ~/path/to/this/opts/saved.yaml [-L 50]
-user:
-  - me
-saved: true
-authenticate: true
-file_scheme: "{TITLE}_{POSTID}_{REDDITOR}"
-filename_restriction_scheme: windows
-limit: 50
