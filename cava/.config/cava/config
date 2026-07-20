@@ -1,0 +1,43 @@
+[general]
+
+# Make each bar multiple terminal cells wide.
+bar_width = 6
+
+# Remove gaps between neighboring bars.
+bar_spacing = 0
+
+# Automatically adapt bar sensitivity to the current audio level.
+autosens = 1
+
+# Enter low-processing sleep mode after this many seconds without audio.
+sleep_timer = 5
+
+
+[color]
+
+# Use the Dracula background instead of the terminal background.
+background = '#282a36'
+
+gradient = 1
+gradient_count = 6
+
+# Bright Dracula accent colors.
+gradient_color_1 = '#bd93f9'  # Purple
+gradient_color_2 = '#ff79c6'  # Pink
+gradient_color_3 = '#ff5555'  # Red
+gradient_color_4 = '#ffb86c'  # Orange
+gradient_color_5 = '#f1fa8c'  # Yellow
+gradient_color_6 = '#8be9fd'  # Cyan
+
+# To include Dracula Green, insert it before Cyan and set gradient_count = 7.
+# gradient_color_6 = '#50fa7b'  # Green
+# gradient_color_7 = '#8be9fd'  # Cyan
+
+
+[smoothing]
+
+# Balance responsiveness against visual smoothness.
+noise_reduction = 86
+
+# Smooth the shape across neighboring frequency bars.
+monstercat = 1

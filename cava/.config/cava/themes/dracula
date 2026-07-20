@@ -1,0 +1,39 @@
+[color]
+
+# Use the Dracula background instead of the terminal background.
+background = '#282a36'
+
+
+# Apply a height-based gradient to each bar.
+gradient = 1
+
+# Full Dracula accent palette arranged as a smooth hue progression.
+# Short bars begin purple and pink, while taller bars reveal the
+# warmer colors followed by green and cyan.
+gradient_color_1 = '#bd93f9'  # Purple
+gradient_color_2 = '#ff79c6'  # Pink
+gradient_color_3 = '#ff5555'  # Red
+gradient_color_4 = '#ffb86c'  # Orange
+gradient_color_5 = '#f1fa8c'  # Yellow
+gradient_color_6 = '#50fa7b'  # Green
+gradient_color_7 = '#8be9fd'  # Cyan
+
+
+# Apply a position-based gradient across the terminal.
+horizontal_gradient = 1
+
+# Symmetrical coloring complements CAVA's mirrored stereo layout.
+# Purple edges transition through pink and red to a warm orange center.
+horizontal_gradient_color_1 = '#bd93f9'  # Purple
+horizontal_gradient_color_2 = '#ff79c6'  # Pink
+horizontal_gradient_color_3 = '#ff5555'  # Red
+horizontal_gradient_color_4 = '#ffb86c'  # Orange
+horizontal_gradient_color_5 = '#ffb86c'  # Orange
+horizontal_gradient_color_6 = '#ff5555'  # Red
+horizontal_gradient_color_7 = '#ff79c6'  # Pink
+horizontal_gradient_color_8 = '#bd93f9'  # Purple
+
+
+# Use the horizontal gradient near the bottom and progressively
+# transition toward the vertical gradient as bars grow taller.
+blend_direction = 'up'
