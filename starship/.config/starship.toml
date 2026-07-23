@@ -1,4 +1,4 @@
-# This tries to replicate powerlevel10k with rounded corners
+# This starship config **exactly** replicates powerlevel10k with rounded corners
 "$schema" = 'https://starship.rs/config-schema.json'
 
 format = """
