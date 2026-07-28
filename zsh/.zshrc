@@ -9,8 +9,6 @@ fi
 # Defaults
 ZSH_PROMPT="${ZSH_PROMPT:-none}"
 ZSH_STARTUP_FASTFETCH="${ZSH_STARTUP_FASTFETCH:-0}"
-ZSH_STARTUP_RANDOM_TLDR="${ZSH_STARTUP_RANDOM_TLDR:-0}"
-ZSH_STARTUP_MEOW="${ZSH_STARTUP_MEOW:-0}"
 ZSH_STARTUP_ZELLIJ="${ZSH_STARTUP_ZELLIJ:-0}"
 ZSH_USE_ZOXIDE="${ZSH_USE_ZOXIDE:-0}"
 ZSH_USE_ATUIN="${ZSH_USE_ATUIN:-0}"
@@ -25,21 +23,6 @@ fi
 # This block are commands that have to go before instant prompt
 if [[ "$ZSH_STARTUP_FASTFETCH" == "1" ]] && (( $+commands[fastfetch] )); then
   fastfetch
-fi
-
-# Display a random tealdeer page
-if [[ "$ZSH_STARTUP_RANDOM_TLDR" == "1" ]] &&
-   (( $+commands[tldr] && $+commands[shuf] )); then
-  tldr_cmd=$(tldr --quiet --list 2>/dev/null | shuf -n1)
-  if [[ -n "$tldr_cmd" ]]; then
-    echo "\n\033[1;34m============= \033[0m$tldr_cmd\033[1;34m =============\033[0m"
-    tldr --quiet "$tldr_cmd"
-  fi
-fi
-
-# Print a random ASCII cat
-if [[ "$ZSH_STARTUP_MEOW" == "1" ]] && (( $+commands[meow] )); then
-  meow
 fi
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.

@@ -1,13 +1,52 @@
 # BDFR helper functions
 
+_bdfr_need_command() {
+  emulate -L zsh
 
-## Saved Posts
+  if ! command -v bdfr >/dev/null 2>&1; then
+    echo "bdfr is not installed or not in PATH."
+    return 127
+  fi
+}
+
+_bdfr_positive_integer() {
+  emulate -L zsh
+
+  [[ "${1:-}" == <-> ]] && (( $1 > 0 ))
+}
+
+_bdfr_require_postid_scheme() {
+  emulate -L zsh
+
+  local scheme="$1"
+
+  if [[ -z "$scheme" ]]; then
+    echo "Missing value for --file-scheme"
+    return 1
+  fi
+
+  if [[ "$scheme" != *"{POSTID}"* ]]; then
+    echo "Refusing file scheme without {POSTID}, because filenames may collide."
+    return 1
+  fi
+}
+
+
+## Saved posts
 #
 # Usage:
+#   bdfr-saved [limit] [--verbose]
+#   bdfr-saved --help
+#
+# Examples:
 #   bdfr-saved
-#   bdfr-saved 100
-#   bdfr-saved --verbose
+#   bdfr-saved 250
 #   bdfr-saved 250 --verbose
+#
+# Defaults:
+#   limit: maximum available from Reddit
+#   output: ~/BDFR/bdfr_posts_new
+#   file-scheme: {TITLE}_{POSTID}_{REDDITOR}
 
 bdfr-saved() {
   emulate -L zsh
@@ -17,13 +56,25 @@ bdfr-saved() {
   local -a args
   local -a verbose_args
 
-  if ! command -v bdfr >/dev/null 2>&1; then
-    echo "bdfr is not installed or not in PATH."
-    return 127
+  _bdfr_need_command || return
+
+  if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
+    echo "Usage: bdfr-saved [limit] [--verbose]"
+    echo
+    echo "Examples:"
+    echo "  bdfr-saved"
+    echo "  bdfr-saved 250"
+    echo "  bdfr-saved 250 --verbose"
+    return 0
   fi
 
   # A numeric first argument is the optional limit.
   if [[ "${1:-}" == <-> ]]; then
+    if ! _bdfr_positive_integer "$1"; then
+      echo "Limit must be a positive integer."
+      return 1
+    fi
+
     limit="$1"
     shift
   fi
@@ -35,15 +86,14 @@ bdfr-saved() {
         shift
         ;;
 
+      -h|--help)
+        echo "Usage: bdfr-saved [limit] [--verbose]"
+        return 0
+        ;;
+
       *)
         echo "Unsupported argument for bdfr-saved: $1"
-        echo "Usage: bdfr-saved [limit] [-v|--verbose]"
-        echo
-        echo "Examples:"
-        echo "  bdfr-saved"
-        echo "  bdfr-saved 100"
-        echo "  bdfr-saved --verbose"
-        echo "  bdfr-saved 250 --verbose"
+        echo "Usage: bdfr-saved [limit] [--verbose]"
         return 1
         ;;
     esac
@@ -72,23 +122,24 @@ bdfr-saved() {
 
 ## Redditors
 #
+# Intended use: pass a limit and choose new or top posts.
+#
 # Usage:
-#   bdfr-redditors redditor1
-#   bdfr-redditors 100 redditor1
-#   bdfr-redditors redditor1 redditor2
+#   bdfr-redditors [limit] [--new|--top] [--verbose] redditor1 [redditor2 ...]
+#   bdfr-redditors [limit] --top [--time PERIOD] [--verbose] redditor1 [...]
+#   bdfr-redditors --help
 #
-#   bdfr-redditors --new redditor1
-#   bdfr-redditors --top redditor1
-#   bdfr-redditors 100 --top redditor1
-#   bdfr-redditors --top --time year redditor1
-#
-#   bdfr-redditors redditor1 \
-#     --file-scheme '{TITLE}_{POSTID}_{REDDITOR}'
+# Examples:
+#   bdfr-redditors 100 --new SomeUser
+#   bdfr-redditors 250 --top SomeUser
+#   bdfr-redditors 500 --top --time year SomeUser AnotherUser
 #
 # Defaults:
 #   limit: maximum available from Reddit
-#   mode: newest
+#   sort: new
 #   top time period: all
+#   output: ~/Downloads/redditors
+#   folder-scheme: {REDDITOR}
 #   file-scheme: {TITLE}_{POSTID}_{REDDITOR}
 
 bdfr-redditors() {
@@ -103,15 +154,29 @@ bdfr-redditors() {
 
   local -a users
   local -a args
+  local -a verbose_args
   local user
 
-  if ! command -v bdfr >/dev/null 2>&1; then
-    echo "bdfr is not installed or not in PATH."
-    return 127
+  _bdfr_need_command || return
+
+  if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
+    echo "Usage: bdfr-redditors [limit] [--new|--top] [--verbose] redditor1 [...]"
+    echo "       bdfr-redditors [limit] --top [--time all|year|month|week|day|hour] [--verbose] redditor1 [...]"
+    echo
+    echo "Examples:"
+    echo "  bdfr-redditors 100 --new SomeUser"
+    echo "  bdfr-redditors 250 --top SomeUser"
+    echo "  bdfr-redditors 500 --top --time year SomeUser AnotherUser"
+    return 0
   fi
 
   # A numeric first argument is the optional limit.
   if [[ "${1:-}" == <-> ]]; then
+    if ! _bdfr_positive_integer "$1"; then
+      echo "Limit must be a positive integer."
+      return 1
+    fi
+
     limit="$1"
     shift
   fi
@@ -128,20 +193,24 @@ bdfr-redditors() {
         shift
         ;;
 
+      -v|--verbose)
+        verbose_args+=("$1")
+        shift
+        ;;
+
       -S|--sort)
         if (( $# < 2 )); then
           echo "Missing value for $1"
           return 1
         fi
 
-        sort="$2"
-
-        case "$sort" in
-          new|top|hot|controversial)
+        case "$2" in
+          new|top)
+            sort="$2"
             ;;
           *)
-            echo "Unsupported redditor sort: $sort"
-            echo "Supported sorts: new, top, hot, controversial"
+            echo "Unsupported redditor sort: $2"
+            echo "Use --new or --top."
             return 1
             ;;
         esac
@@ -155,13 +224,12 @@ bdfr-redditors() {
           return 1
         fi
 
-        time="$2"
-
-        case "$time" in
+        case "$2" in
           all|year|month|week|day|hour)
+            time="$2"
             ;;
           *)
-            echo "Unsupported time period: $time"
+            echo "Unsupported time period: $2"
             echo "Supported periods: all, year, month, week, day, hour"
             return 1
             ;;
@@ -177,14 +245,14 @@ bdfr-redditors() {
           return 1
         fi
 
+        _bdfr_require_postid_scheme "$2" || return
         file_scheme="$2"
-
-        if [[ "$file_scheme" != *"{POSTID}"* ]]; then
-          echo "Refusing file scheme without {POSTID}, because filenames may collide."
-          return 1
-        fi
-
         shift 2
+        ;;
+
+      -h|--help)
+        echo "Usage: bdfr-redditors [limit] [--new|--top] [--verbose] redditor1 [...]"
+        return 0
         ;;
 
       --)
@@ -195,8 +263,7 @@ bdfr-redditors() {
 
       -*)
         echo "Unsupported option for bdfr-redditors: $1"
-        echo "Usage: bdfr-redditors [limit] [--new|--top] redditor1 [redditor2 ...]"
-        echo "       bdfr-redditors [limit] redditor1 [redditor2 ...] [--time TIME] [--file-scheme SCHEME]"
+        echo "Usage: bdfr-redditors [limit] [--new|--top] [--verbose] redditor1 [...]"
         return 1
         ;;
 
@@ -208,20 +275,17 @@ bdfr-redditors() {
   done
 
   if (( ${#users[@]} == 0 )); then
-    echo "Usage: bdfr-redditors [limit] [--new|--top] redditor1 [redditor2 ...]"
+    echo "Usage: bdfr-redditors [limit] [--new|--top] [--verbose] redditor1 [...]"
     echo
     echo "Examples:"
-    echo "  bdfr-redditors SomeUser"
-    echo "  bdfr-redditors 100 SomeUser"
-    echo "  bdfr-redditors --top SomeUser"
-    echo "  bdfr-redditors 100 --top SomeUser"
-    echo "  bdfr-redditors --top --time year SomeUser"
+    echo "  bdfr-redditors 100 --new SomeUser"
+    echo "  bdfr-redditors 250 --top SomeUser"
+    echo "  bdfr-redditors 500 --top --time year SomeUser AnotherUser"
     return 1
   fi
 
-  if (( time_explicit )) &&
-     [[ "$sort" != "top" && "$sort" != "controversial" ]]; then
-    echo "--time only applies to top or controversial sorting."
+  if (( time_explicit )) && [[ "$sort" != "top" ]]; then
+    echo "--time only applies when using --top."
     return 1
   fi
 
@@ -242,7 +306,7 @@ bdfr-redditors() {
     args+=(--limit "$limit")
   fi
 
-  if [[ "$sort" == "top" || "$sort" == "controversial" ]]; then
+  if [[ "$sort" == "top" ]]; then
     args+=(--time "$time")
   fi
 
@@ -250,31 +314,30 @@ bdfr-redditors() {
     args+=(--user "$user")
   done
 
-  command bdfr "${args[@]}"
+  command bdfr "${args[@]}" "${verbose_args[@]}"
 }
 
 
 ## Subreddits
 #
+# Intended use: download top posts, with adjustable time and score filters.
+#
 # Usage:
-#   bdfr-subreddits linux
-#   bdfr-subreddits 100 linux
-#   bdfr-subreddits linux fedora
+#   bdfr-subreddits [limit] [--time PERIOD] [--score N] [--verbose] subreddit1 [...]
+#   bdfr-subreddits --help
 #
-#   bdfr-subreddits --top linux
-#   bdfr-subreddits --new linux
-#   bdfr-subreddits --score 1000 linux
-#   bdfr-subreddits --no-min-score linux
-#
-#   bdfr-subreddits --top --time all --score 500 linux
-#   bdfr-subreddits 100 --new linux fedora
+# Examples:
+#   bdfr-subreddits 100 --time year --score 7000 linux
+#   bdfr-subreddits 250 --time month --score 1000 linux fedora
+#   bdfr-subreddits --time all --score 5000 wallpapers
 #
 # Defaults:
 #   limit: maximum available from Reddit
-#   mode: top
-#   top time period: year
-#   minimum score in top mode: 7000
-#   minimum score in new mode: none
+#   sort: top
+#   time period: year
+#   minimum score: 7000
+#   output: ~/Downloads/subreddits
+#   folder-scheme: {SUBREDDIT}
 #   file-scheme: {REDDITOR}_{TITLE}_{POSTID}
 
 bdfr-subreddits() {
@@ -283,38 +346,48 @@ bdfr-subreddits() {
   local limit=""
   local sort="top"
   local time="year"
-  local time_explicit=0
-
   local min_score=7000
-  local score_explicit=0
-
   local file_scheme="{REDDITOR}_{TITLE}_{POSTID}"
   local out="$HOME/Downloads/subreddits"
 
   local -a subs
   local -a args
+  local -a verbose_args
   local sub
 
-  if ! command -v bdfr >/dev/null 2>&1; then
-    echo "bdfr is not installed or not in PATH."
-    return 127
+  _bdfr_need_command || return
+
+  if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
+    echo "Usage: bdfr-subreddits [limit] [--time all|year|month|week|day|hour] [--score N] [--verbose] subreddit1 [...]"
+    echo
+    echo "Examples:"
+    echo "  bdfr-subreddits 100 --time year --score 7000 linux"
+    echo "  bdfr-subreddits 250 --time month --score 1000 linux fedora"
+    echo "  bdfr-subreddits --time all --score 5000 wallpapers"
+    return 0
   fi
 
   # A numeric first argument is the optional limit.
   if [[ "${1:-}" == <-> ]]; then
+    if ! _bdfr_positive_integer "$1"; then
+      echo "Limit must be a positive integer."
+      return 1
+    fi
+
     limit="$1"
     shift
   fi
 
   while (( $# > 0 )); do
     case "$1" in
-      --new)
-        sort="new"
+      --top)
+        # Accepted for readability; top is already the only subreddit mode here.
+        sort="top"
         shift
         ;;
 
-      --top)
-        sort="top"
+      -v|--verbose)
+        verbose_args+=("$1")
         shift
         ;;
 
@@ -324,18 +397,13 @@ bdfr-subreddits() {
           return 1
         fi
 
-        sort="$2"
+        if [[ "$2" != "top" ]]; then
+          echo "Unsupported subreddit sort: $2"
+          echo "This helper is intentionally limited to top posts."
+          return 1
+        fi
 
-        case "$sort" in
-          new|top|hot|rising|controversial)
-            ;;
-          *)
-            echo "Unsupported subreddit sort: $sort"
-            echo "Supported sorts: new, top, hot, rising, controversial"
-            return 1
-            ;;
-        esac
-
+        sort="top"
         shift 2
         ;;
 
@@ -345,37 +413,28 @@ bdfr-subreddits() {
           return 1
         fi
 
-        time="$2"
-
-        case "$time" in
+        case "$2" in
           all|year|month|week|day|hour)
+            time="$2"
             ;;
           *)
-            echo "Unsupported time period: $time"
+            echo "Unsupported time period: $2"
             echo "Supported periods: all, year, month, week, day, hour"
             return 1
             ;;
         esac
 
-        time_explicit=1
         shift 2
         ;;
 
       --score|--min-score)
-        if (( $# < 2 )) || [[ "$2" != <-> ]]; then
-          echo "Missing numeric value for $1"
+        if (( $# < 2 )) || ! _bdfr_positive_integer "$2"; then
+          echo "Missing positive numeric value for $1"
           return 1
         fi
 
         min_score="$2"
-        score_explicit=1
         shift 2
-        ;;
-
-      --no-min-score)
-        min_score=""
-        score_explicit=1
-        shift
         ;;
 
       --file-scheme)
@@ -384,14 +443,14 @@ bdfr-subreddits() {
           return 1
         fi
 
+        _bdfr_require_postid_scheme "$2" || return
         file_scheme="$2"
-
-        if [[ "$file_scheme" != *"{POSTID}"* ]]; then
-          echo "Refusing file scheme without {POSTID}, because filenames may collide."
-          return 1
-        fi
-
         shift 2
+        ;;
+
+      -h|--help)
+        echo "Usage: bdfr-subreddits [limit] [--time PERIOD] [--score N] [--verbose] subreddit1 [...]"
+        return 0
         ;;
 
       --)
@@ -402,8 +461,7 @@ bdfr-subreddits() {
 
       -*)
         echo "Unsupported option for bdfr-subreddits: $1"
-        echo "Usage: bdfr-subreddits [limit] [--new|--top] subreddit1 [subreddit2 ...]"
-        echo "       bdfr-subreddits [limit] subreddit1 [subreddit2 ...] [--score N] [--time TIME]"
+        echo "Usage: bdfr-subreddits [limit] [--time PERIOD] [--score N] [--verbose] subreddit1 [...]"
         return 1
         ;;
 
@@ -415,27 +473,13 @@ bdfr-subreddits() {
   done
 
   if (( ${#subs[@]} == 0 )); then
-    echo "Usage: bdfr-subreddits [limit] [--new|--top] subreddit1 [subreddit2 ...]"
+    echo "Usage: bdfr-subreddits [limit] [--time PERIOD] [--score N] [--verbose] subreddit1 [...]"
     echo
     echo "Examples:"
-    echo "  bdfr-subreddits linux"
-    echo "  bdfr-subreddits 100 linux"
-    echo "  bdfr-subreddits --new linux"
-    echo "  bdfr-subreddits --score 1000 linux"
-    echo "  bdfr-subreddits --no-min-score linux"
+    echo "  bdfr-subreddits 100 --time year --score 7000 linux"
+    echo "  bdfr-subreddits 250 --time month --score 1000 linux fedora"
+    echo "  bdfr-subreddits --time all --score 5000 wallpapers"
     return 1
-  fi
-
-  if (( time_explicit )) &&
-     [[ "$sort" != "top" && "$sort" != "controversial" ]]; then
-    echo "--time only applies to top or controversial sorting."
-    return 1
-  fi
-
-  # New posts should not have to accumulate 7000 upvotes first.
-  # An explicitly supplied --score still applies in new mode.
-  if [[ "$sort" == "new" ]] && (( ! score_explicit )); then
-    min_score=""
   fi
 
   mkdir -p -- "$out" || return
@@ -443,6 +487,8 @@ bdfr-subreddits() {
   args=(
     download "$out"
     --sort "$sort"
+    --time "$time"
+    --min-score "$min_score"
     --folder-scheme "{SUBREDDIT}"
     --file-scheme "$file_scheme"
     --filename-restriction-scheme windows
@@ -454,17 +500,9 @@ bdfr-subreddits() {
     args+=(--limit "$limit")
   fi
 
-  if [[ "$sort" == "top" || "$sort" == "controversial" ]]; then
-    args+=(--time "$time")
-  fi
-
-  if [[ -n "$min_score" ]]; then
-    args+=(--min-score "$min_score")
-  fi
-
   for sub in "${subs[@]}"; do
     args+=(--subreddit "$sub")
   done
 
-  command bdfr "${args[@]}"
+  command bdfr "${args[@]}" "${verbose_args[@]}"
 }
