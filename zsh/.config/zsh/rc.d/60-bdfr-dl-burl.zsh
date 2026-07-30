@@ -8,9 +8,9 @@
 #
 # Options:
 #   -bn, --bdfr-scheme  Use BDFR's {REDDITOR}_{TITLE}_{POSTID} naming.
-#   -wt, --with-text    Run a second BDFR archive pass, create .txt
-#                       sidecars, and recover Reddit-hosted images embedded
-#                       inside self-post text when BDFR misses them.
+#   -wt, --with-text    Use one BDFR clone pass to download media and archive
+#                       post data, create .txt sidecars, and recover Reddit-
+#                       hosted images embedded inside self-post text.
 #
 # Environment:
 #   BURL_MAX_WAIT_TIME=300  Override BDFR's maximum wait time.
@@ -402,58 +402,61 @@ _burl_add_inline_reddit_media() {
   return "$rc"
 }
 
-# Create .txt sidecars from BDFR archive JSON in the private per-run folder.
-_burl_add_post_text() {
+# Promote files produced by a private BDFR clone directory into the CWD.
+_burl_promote_clone_files() {
   emulate -L zsh
 
-  local file_scheme="$1"
+  local clone_dir="$1"
+  local clone_log="$2"
+  local artifact
+  local destination
+  local rc=0
+
+  # BDFR clone writes media/text and archive JSON to one directory. Move only
+  # non-JSON download artifacts into the current directory, never replacing an
+  # existing file. The JSON stays private for sidecar processing below.
+  for artifact in "$clone_dir"/*(N); do
+    [[ -f "$artifact" ]] || continue
+    [[ "${artifact:e}" == json ]] && continue
+
+    destination="./${artifact:t}"
+
+    if [[ -e "$destination" ]]; then
+      print -u2 \
+        "burl: existing file kept; clone output not substituted: ${destination#./}"
+      continue
+    fi
+
+    if mv -- "$artifact" "$destination"; then
+      print -u2 "burl: wrote downloaded file: ${destination#./}"
+    else
+      print -r -- \
+        "[burl - ERROR] - Could not move cloned file into place: ${destination#./}" \
+        >> "$clone_log"
+      rc=1
+    fi
+  done
+
+  return "$rc"
+}
+
+# Process JSON produced by the same BDFR clone invocation that downloaded the
+# media. This avoids launching a second PRAW/BDFR process solely for post text.
+_burl_process_clone_json() {
+  emulate -L zsh
+
+  local clone_dir="$1"
   local work_dir="$2"
-  local failure_re="$3"
-  local display_re="$4"
-  shift 4
+  local clone_log="$3"
+  local failure_re="$4"
 
-  (( $# )) || return 0
-
-  local archive_dir="$work_dir/text-sidecars"
-  local archive_log="$work_dir/bdfr-text.log"
   local rc=0
   local json_count=0
   local json_file
   local text_file
 
-  mkdir -m 700 -- "$archive_dir" || {
-    _burl_report_failure \
-      "POST TEXT SETUP FAILED" \
-      "$archive_log" \
-      "$display_re" \
-      "burl: could not create temporary archive directory: $archive_dir"
-    return 1
-  }
-
   {
-    local -a archive_args
-    local source
-
-    archive_args=(
-      archive "$archive_dir"
-      --folder-scheme ''
-      --file-scheme "$file_scheme"
-      --filename-restriction-scheme windows
-      --format json
-      --log "$archive_log"
-    )
-
-    for source in "$@"; do
-      archive_args+=(-l "$source")
-    done
-
-    bdfr "${archive_args[@]}"
-
-    if (( $? != 0 )); then
-      rc=1
-    fi
-
-    for json_file in "$archive_dir"/*.json(N); do
+    for json_file in "$clone_dir"/*.json(N); do
       (( ++json_count ))
       text_file="./${json_file:t:r}.txt"
 
@@ -467,7 +470,7 @@ _burl_add_post_text() {
 
         print -r -- \
           "[burl - ERROR] - Malformed or unexpected BDFR JSON: ${json_file:t}" \
-          >> "$archive_log"
+          >> "$clone_log"
 
         continue
       fi
@@ -477,7 +480,7 @@ _burl_add_post_text() {
       _burl_add_inline_reddit_media \
         "$json_file" \
         "$work_dir" \
-        "$archive_log" || rc=1
+        "$clone_log" || rc=1
 
       # Determine whether the body contains useful text.
       if jq -e '
@@ -489,8 +492,9 @@ _burl_add_post_text() {
           )
       ' "$json_file" >/dev/null 2>&1; then
 
-        # A text-only post may already have this file from the normal
-        # downloader pass. Never replace an existing file.
+        # BDFR clone may already have produced this .txt for a self-post, and
+        # the promotion step may already have moved it into the CWD. Never
+        # replace any existing file.
         if [[ ! -e "$text_file" ]]; then
           if jq -r '.selftext' "$json_file" >| "$text_file"; then
             print -u2 \
@@ -501,12 +505,12 @@ _burl_add_post_text() {
 
             print -r -- \
               "[burl - ERROR] - Could not write post text: ${text_file#./}" \
-              >> "$archive_log"
+              >> "$clone_log"
           fi
         fi
       else
-        # Remove unusable text that the normal downloader may have created
-        # for a removed, deleted, or empty self-post.
+        # Remove unusable text that BDFR may have created for a removed,
+        # deleted, or empty self-post.
         if [[ -f "$text_file" ]] && {
           ! grep -q '[^[:space:]]' "$text_file" 2>/dev/null ||
           grep -Eqi \
@@ -519,7 +523,7 @@ _burl_add_post_text() {
 
             print -r -- \
               "[burl - ERROR] - Could not remove unusable text file: ${text_file#./}" \
-              >> "$archive_log"
+              >> "$clone_log"
           }
         fi
       fi
@@ -528,29 +532,21 @@ _burl_add_post_text() {
     if (( json_count == 0 )); then
       rc=1
       print -r -- \
-        "[burl - ERROR] - BDFR archive produced no submission JSON" \
-        >> "$archive_log"
+        "[burl - ERROR] - BDFR clone produced no submission JSON" \
+        >> "$clone_log"
     fi
 
     # BDFR can return 0 even when individual operations failed.
-    if _burl_log_has_failures "$archive_log" "$failure_re"; then
+    if _burl_log_has_failures "$clone_log" "$failure_re"; then
       rc=1
-    fi
-
-    if (( rc != 0 )); then
-      _burl_report_failure \
-        "POST TEXT OR INLINE MEDIA PROCESSING FAILED" \
-        "$archive_log" \
-        "$display_re" \
-        "burl: files successfully downloaded were kept" \
-        "burl: temporary archive JSON will be deleted"
     fi
 
     return "$rc"
 
   } always {
-    # Archive JSON is never retained, even when logs are kept.
-    rm -rf -- "$archive_dir"
+    # Clone media has already been promoted and archive JSON must never be
+    # retained, including when the private error log is kept.
+    rm -rf -- "$clone_dir"
   }
 }
 
@@ -595,7 +591,7 @@ burl() {
         print -u2 "    Also create .txt sidecars for posts with body text."
         print -u2 "    For self/rich-text posts, also recover direct Reddit-hosted"
         print -u2 "    inline images that BDFR's SelfPost downloader may miss."
-        print -u2 "    This performs the second BDFR archive pass."
+        print -u2 "    This uses one BDFR clone pass instead of separate download/archive passes."
         return 0
         ;;
 
@@ -629,8 +625,7 @@ burl() {
     return 2
   }
 
-  # Normalize once, then give both BDFR passes exactly the same unambiguous
-  # submission sources.
+  # Normalize once, then give BDFR unambiguous submission URLs in either mode.
   for source in "${raw_sources[@]}"; do
     source="$(_burl_normalize_source "$source")" || return 1
     sources+=("$source")
@@ -696,7 +691,6 @@ burl() {
   local work_dir
   local log
   local rc=0
-  local partial_rc=0
   local keep_work=0
 
   work_dir="$(mktemp -d "${runtime_root%/}/burl.XXXXXXXX")" || {
@@ -736,7 +730,82 @@ burl() {
 
   {
     local -a bdfr_opts
+    local clone_dir=""
+    local processing_rc=0
+    local logged_failure=0
 
+    if (( with_text )); then
+      # Clone downloads and archives each Submission object in one BDFR/PRAW
+      # process. This avoids the extra Reddit fetch caused by running download
+      # and archive as two independent commands.
+      clone_dir="$work_dir/clone-output"
+
+      mkdir -m 700 -- "$clone_dir" || {
+        print -r -- \
+          "[burl - ERROR] - Could not create temporary clone directory: $clone_dir" \
+          >> "$log"
+        rc=1
+      }
+
+      if (( rc == 0 )); then
+        bdfr_opts=(
+          clone "$clone_dir"
+          --folder-scheme ''
+          --file-scheme "$file_scheme"
+          --filename-restriction-scheme windows
+          --format json
+          --log "$log"
+          --max-wait-time "$max_wait"
+        )
+
+        bdfr "${bdfr_opts[@]}" "${args[@]}"
+        rc=$?
+
+        # Even when cloning or archiving fails, keep any media/text that was
+        # successfully downloaded before the failure.
+        _burl_promote_clone_files "$clone_dir" "$log" || processing_rc=1
+
+        _burl_process_clone_json \
+          "$clone_dir" \
+          "$work_dir" \
+          "$log" \
+          "$failure_re" || processing_rc=1
+      else
+        rm -rf -- "$clone_dir"
+      fi
+
+      if _burl_log_has_failures "$log" "$failure_re"; then
+        logged_failure=1
+      fi
+
+      if (( rc != 0 || processing_rc != 0 || logged_failure )); then
+        keep_work=1
+
+        if (( rc != 0 )); then
+          _burl_report_failure \
+            "BDFR CLONE FAILED with exit code $rc" \
+            "$log" \
+            "$display_re" \
+            "burl: files successfully downloaded before the failure were kept" \
+            "burl: temporary archive JSON was deleted"
+        else
+          _burl_report_failure \
+            "BDFR CLONE COMPLETED WITH ERRORS" \
+            "$log" \
+            "$display_re" \
+            "burl: some requested post text or media may be missing" \
+            "burl: files successfully downloaded were kept" \
+            "burl: temporary archive JSON was deleted"
+        fi
+
+        (( rc != 0 )) && return "$rc"
+        return 1
+      fi
+
+      return 0
+    fi
+
+    # Normal mode remains a direct media download into the current directory.
     bdfr_opts=(
       download .
       --folder-scheme ''
@@ -761,22 +830,7 @@ burl() {
       return "$rc"
     fi
 
-    # Only perform the second BDFR pass when explicitly requested.
-    if (( with_text )); then
-      _burl_add_post_text \
-        "$file_scheme" \
-        "$work_dir" \
-        "$failure_re" \
-        "$display_re" \
-        "${sources[@]}" || {
-          partial_rc=1
-          keep_work=1
-        }
-    fi
-
-    # BDFR can exit 0 while individual submissions or media failed.
     if _burl_log_has_failures "$log" "$failure_re"; then
-      partial_rc=1
       keep_work=1
 
       _burl_report_failure \
@@ -785,9 +839,11 @@ burl() {
         "$display_re" \
         "burl: some requested data may not have downloaded" \
         "burl: files successfully downloaded were kept"
+
+      return 1
     fi
 
-    return "$partial_rc"
+    return 0
 
   } always {
     if [[ ${BURL_KEEP_LOG:-0} == 1 ]] ||
