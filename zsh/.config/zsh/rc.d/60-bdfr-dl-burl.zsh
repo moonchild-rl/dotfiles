@@ -3,46 +3,432 @@
 # Examples:
 #   burl https://www.reddit.com/r/test/comments/abc123/example/
 #   burl abc123
-#   burl abc123 def456 https://redd.it/ghi789
+#   burl -wt abc123
+#   burl -bn -wt abc123 def456 https://redd.it/ghi789
 #
-# Naming:
-#   Default:
-#     {TITLE}_{POSTID}_{REDDITOR}
+# Options:
+#   -bn, --bdfr-scheme  Use BDFR's {REDDITOR}_{TITLE}_{POSTID} naming.
+#   -wt, --with-text    Run a second BDFR archive pass, create .txt
+#                       sidecars, and recover Reddit-hosted images embedded
+#                       inside self-post text when BDFR misses them.
 #
-#   Match BDFR's default/bulk naming scheme:
-#     burl -bn abc123
-#
-# Optional override:
-#   BURL_MAX_WAIT_TIME=0 burl abc123
-#
+# Environment:
+#   BURL_MAX_WAIT_TIME=300  Override BDFR's maximum wait time.
+#   BURL_KEEP_LOG=1         Keep the private per-run temporary directory.
+#   BURL_LOG_DIR=/path      Override the runtime root. This may survive reboot.
 
-## Create .txt sidecars from BDFR archive JSON in a private temporary folder.
+_burl_log_has_failures() {
+  emulate -L zsh
+
+  local log="$1"
+  local error_re="$2"
+
+  [[ -s "$log" ]] && grep -Eq -- "$error_re" "$log"
+}
+
+_burl_print_log_excerpt() {
+  emulate -L zsh
+
+  local log="$1"
+  local error_re="$2"
+  local limit="${3:-80}"
+
+  if [[ ! -s "$log" ]]; then
+    print -u2 "burl: BDFR produced no log output"
+    return 0
+  fi
+
+  if grep -Eq -- "$error_re" "$log"; then
+    grep -E -- "$error_re" "$log" 2>/dev/null |
+      tail -n "$limit" >&2
+  else
+    print -u2 \
+      "burl: no known error pattern matched; showing the last $limit log lines:"
+    tail -n "$limit" -- "$log" >&2
+  fi
+}
+
+_burl_report_failure() {
+  emulate -L zsh
+
+  local heading="$1"
+  local log="$2"
+  local display_re="$3"
+  shift 3
+
+  local line
+
+  print -u2 ""
+  print -u2 "========================================"
+  print -u2 "burl: $heading"
+
+  for line in "$@"; do
+    print -u2 "$line"
+  done
+
+  print -u2 ""
+  print -u2 "burl: relevant log lines:"
+  _burl_print_log_excerpt "$log" "$display_re"
+  print -u2 "========================================"
+}
+
+# Convert a bare base36-like Reddit post ID into an unambiguous submission URL.
+# This also avoids BDFR archive treating some seven-character IDs as comments.
+_burl_normalize_source() {
+  emulate -L zsh
+
+  local source="$1"
+
+  if (( ${#source} >= 5 && ${#source} <= 10 )) &&
+     [[ "$source" != *[^[:alnum:]]* ]]; then
+    print -r -- "https://redd.it/$source"
+  else
+    print -r -- "$source"
+  fi
+}
+
+_burl_content_type_extension() {
+  emulate -L zsh
+
+  local content_type="${1:l}"
+
+  case "$content_type" in
+    image/jpeg|image/jpg)
+      print -r -- "jpg"
+      ;;
+    image/png)
+      print -r -- "png"
+      ;;
+    image/gif)
+      print -r -- "gif"
+      ;;
+    image/webp)
+      print -r -- "webp"
+      ;;
+    image/avif)
+      print -r -- "avif"
+      ;;
+    image/bmp|image/x-ms-bmp)
+      print -r -- "bmp"
+      ;;
+    image/tiff)
+      print -r -- "tiff"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Download one URL into a temporary file and print its image MIME type.
+_burl_try_image_download() {
+  emulate -L zsh
+
+  local url="$1"
+  local temp_file="$2"
+  local error_file="$3"
+  local content_type
+  local curl_rc
+
+  : >| "$error_file" || return 1
+  rm -f -- "$temp_file"
+
+  content_type="$(
+    curl \
+      --fail \
+      --location \
+      --silent \
+      --show-error \
+      --retry 3 \
+      --retry-delay 2 \
+      --retry-connrefused \
+      --connect-timeout 30 \
+      --user-agent 'burl/1.0 (BDFR helper)' \
+      --output "$temp_file" \
+      --write-out '%{content_type}' \
+      "$url" \
+      2>"$error_file"
+  )"
+  curl_rc=$?
+
+  if (( curl_rc != 0 )) || [[ ! -s "$temp_file" ]]; then
+    rm -f -- "$temp_file"
+    return 1
+  fi
+
+  content_type="${content_type%%;*}"
+  content_type="${content_type:l}"
+
+  if [[ "$content_type" != image/* ]]; then
+    print -r -- \
+      "curl returned non-image content type '$content_type' for $url" \
+      >> "$error_file"
+    rm -f -- "$temp_file"
+    return 1
+  fi
+
+  print -r -- "$content_type"
+}
+
+# BDFR's SelfPost downloader can save only .txt for a rich-text/self post even
+# when the body contains an inline image. Recover only direct Reddit-hosted
+# images found in archived selftext; arbitrary external links are ignored.
+_burl_add_inline_reddit_media() {
+  emulate -L zsh
+
+  local json_file="$1"
+  local work_dir="$2"
+  local archive_log="$3"
+
+  local base_name="${json_file:t:r}"
+  local url_file
+  local media_url
+  local download_url
+  local original_url
+  local temp_file
+  local error_file
+  local fallback_error_file
+  local content_type
+  local extension
+  local destination
+  local existing_extension
+  local index=0
+  local rc=0
+
+  local -a media_urls
+
+  url_file="$(mktemp "${work_dir%/}/inline-urls.XXXXXX")" || {
+    print -r -- \
+      "[burl - ERROR] - Could not create an inline-media URL list" \
+      >> "$archive_log"
+    return 1
+  }
+
+  # Reddit rich-text/self posts commonly expose inline uploads as Markdown
+  # links to preview.redd.it or i.redd.it. Decode &amp; in query strings and
+  # remove duplicate URLs while retaining only Reddit-hosted image endpoints.
+  if ! jq -r '
+    .selftext
+    | gsub("&amp;"; "&")
+    | [
+        scan(
+          "https?://(?:i|preview|external-preview)\\.redd\\.it/[^[:space:]<>\"\\)\\]]+"
+        )
+        | sub("[.,;:!?]+$"; "")
+      ]
+    | unique[]
+  ' "$json_file" >| "$url_file"; then
+    print -r -- \
+      "[burl - ERROR] - Could not extract inline Reddit media URLs from ${json_file:t}" \
+      >> "$archive_log"
+    rm -f -- "$url_file"
+    return 1
+  fi
+
+  while IFS= read -r media_url; do
+    [[ -n "$media_url" ]] && media_urls+=("$media_url")
+  done < "$url_file"
+
+  rm -f -- "$url_file"
+
+  (( ${#media_urls[@]} )) || return 0
+
+  for media_url in "${media_urls[@]}"; do
+    (( ++index ))
+
+    temp_file="$(mktemp "${work_dir%/}/inline-image.XXXXXX")" || {
+      print -r -- \
+        "[burl - ERROR] - Could not create a temporary inline-image file" \
+        >> "$archive_log"
+      rc=1
+      continue
+    }
+
+    error_file="$(mktemp "${work_dir%/}/inline-curl.XXXXXX")" || {
+      rm -f -- "$temp_file"
+      print -r -- \
+        "[burl - ERROR] - Could not create a temporary curl error file" \
+        >> "$archive_log"
+      rc=1
+      continue
+    }
+
+    fallback_error_file="$(mktemp "${work_dir%/}/inline-curl-fallback.XXXXXX")" || {
+      rm -f -- "$temp_file" "$error_file"
+      print -r -- \
+        "[burl - ERROR] - Could not create a temporary curl fallback error file" \
+        >> "$archive_log"
+      rc=1
+      continue
+    }
+
+    download_url="$media_url"
+    original_url=""
+
+    # preview.redd.it usually points at a resized/converted preview. Prefer the
+    # matching original i.redd.it object, then fall back to the preview URL.
+    case "$media_url" in
+      https://preview.redd.it/*)
+        original_url="https://i.redd.it/${${media_url#https://preview.redd.it/}%%\?*}"
+        ;;
+      http://preview.redd.it/*)
+        original_url="https://i.redd.it/${${media_url#http://preview.redd.it/}%%\?*}"
+        ;;
+    esac
+
+    if [[ -n "$original_url" ]]; then
+      content_type="$(
+        _burl_try_image_download \
+          "$original_url" \
+          "$temp_file" \
+          "$error_file"
+      )"
+
+      if (( $? == 0 )); then
+        download_url="$original_url"
+      else
+        content_type="$(
+          _burl_try_image_download \
+            "$media_url" \
+            "$temp_file" \
+            "$fallback_error_file"
+        )"
+
+        if (( $? != 0 )); then
+          print -r -- \
+            "[burl - ERROR] - Could not download inline Reddit image: $media_url" \
+            >> "$archive_log"
+
+          [[ -s "$error_file" ]] && cat -- "$error_file" >> "$archive_log"
+          [[ -s "$fallback_error_file" ]] && \
+            cat -- "$fallback_error_file" >> "$archive_log"
+
+          rm -f -- \
+            "$temp_file" \
+            "$error_file" \
+            "$fallback_error_file"
+
+          rc=1
+          continue
+        fi
+      fi
+    else
+      content_type="$(
+        _burl_try_image_download \
+          "$download_url" \
+          "$temp_file" \
+          "$error_file"
+      )"
+
+      if (( $? != 0 )); then
+        print -r -- \
+          "[burl - ERROR] - Could not download inline Reddit image: $media_url" \
+          >> "$archive_log"
+
+        [[ -s "$error_file" ]] && cat -- "$error_file" >> "$archive_log"
+
+        rm -f -- \
+          "$temp_file" \
+          "$error_file" \
+          "$fallback_error_file"
+
+        rc=1
+        continue
+      fi
+    fi
+
+    extension="$(_burl_content_type_extension "$content_type")" || {
+      print -r -- \
+        "[burl - ERROR] - Unsupported image content type '$content_type' from $download_url" \
+        >> "$archive_log"
+
+      rm -f -- \
+        "$temp_file" \
+        "$error_file" \
+        "$fallback_error_file"
+
+      rc=1
+      continue
+    }
+
+    # Avoid duplicating media that BDFR already downloaded for a one-image
+    # post, even when Reddit served a different extension such as WebP.
+    if (( ${#media_urls[@]} == 1 )); then
+      destination="./${base_name}.${extension}"
+
+      for existing_extension in \
+        jpg jpeg png gif webp avif bmp tif tiff; do
+        if [[ -e "./${base_name}.${existing_extension}" ]]; then
+          destination=""
+          break
+        fi
+      done
+    else
+      destination="./${base_name}_${index}.${extension}"
+    fi
+
+    if [[ -z "$destination" ]]; then
+      rm -f -- \
+        "$temp_file" \
+        "$error_file" \
+        "$fallback_error_file"
+      continue
+    fi
+
+    if [[ -e "$destination" ]]; then
+      print -u2 \
+        "burl: inline media already exists; not replacing: ${destination#./}"
+
+      rm -f -- \
+        "$temp_file" \
+        "$error_file" \
+        "$fallback_error_file"
+      continue
+    fi
+
+    if mv -- "$temp_file" "$destination"; then
+      print -u2 "burl: wrote inline post image: ${destination#./}"
+    else
+      print -r -- \
+        "[burl - ERROR] - Could not move inline image into place: ${destination#./}" \
+        >> "$archive_log"
+      rm -f -- "$temp_file"
+      rc=1
+    fi
+
+    rm -f -- "$error_file" "$fallback_error_file"
+  done
+
+  return "$rc"
+}
+
+# Create .txt sidecars from BDFR archive JSON in the private per-run folder.
 _burl_add_post_text() {
   emulate -L zsh
 
   local file_scheme="$1"
-  local log_dir="$2"
-  shift 2
+  local work_dir="$2"
+  local failure_re="$3"
+  local display_re="$4"
+  shift 4
 
   (( $# )) || return 0
 
-  local archive_dir
-  local archive_log
+  local archive_dir="$work_dir/text-sidecars"
+  local archive_log="$work_dir/bdfr-text.log"
   local rc=0
-  local keep_log=0
+  local json_count=0
   local json_file
   local text_file
 
-  archive_dir="$(mktemp -d "${log_dir%/}/text-sidecars.XXXXXX")" || return 1
-
-  archive_log="$(mktemp "${log_dir%/}/bdfr-text.XXXXXX.log")" || {
-    rm -rf -- "$archive_dir"
+  mkdir -m 700 -- "$archive_dir" || {
+    _burl_report_failure \
+      "POST TEXT SETUP FAILED" \
+      "$archive_log" \
+      "$display_re" \
+      "burl: could not create temporary archive directory: $archive_dir"
     return 1
   }
-
-  # Match actual log/error signals, not arbitrary words appearing in titles.
-  local error_re
-  error_re='(^|[[:space:]\[])(ERROR|CRITICAL)([[:space:]\]:-]|$)|Traceback \(most recent call last\)|HTTP Error 429|429 Too Many Requests|Too Many Requests|[Tt]imed out|[Tt]imeout|[Cc]onnection aborted|[Cc]onnection reset|Max retries exceeded'
 
   {
     local -a archive_args
@@ -65,10 +451,10 @@ _burl_add_post_text() {
 
     if (( $? != 0 )); then
       rc=1
-      keep_log=1
     fi
 
     for json_file in "$archive_dir"/*.json(N); do
+      (( ++json_count ))
       text_file="./${json_file:t:r}.txt"
 
       # Only accept the expected BDFR submission structure.
@@ -78,13 +464,20 @@ _burl_add_post_text() {
         (.selftext | type == "string")
       ' "$json_file" >/dev/null 2>&1; then
         rc=1
-        keep_log=1
 
-        print -u2 \
-          "burl: malformed or unexpected BDFR JSON: ${json_file:t}"
+        print -r -- \
+          "[burl - ERROR] - Malformed or unexpected BDFR JSON: ${json_file:t}" \
+          >> "$archive_log"
 
         continue
       fi
+
+      # Recover Reddit-hosted images embedded inside rich-text/self posts.
+      # This is deliberately limited to Reddit image hosts.
+      _burl_add_inline_reddit_media \
+        "$json_file" \
+        "$work_dir" \
+        "$archive_log" || rc=1
 
       # Determine whether the body contains useful text.
       if jq -e '
@@ -96,25 +489,24 @@ _burl_add_post_text() {
           )
       ' "$json_file" >/dev/null 2>&1; then
 
-        # A text-only Reddit post already has this .txt file because the
-        # normal BDFR downloader created it. Never replace an existing file.
+        # A text-only post may already have this file from the normal
+        # downloader pass. Never replace an existing file.
         if [[ ! -e "$text_file" ]]; then
           if jq -r '.selftext' "$json_file" >| "$text_file"; then
             print -u2 \
               "burl: wrote post text: ${text_file#./}"
           else
             rm -f -- "$text_file"
-
             rc=1
-            keep_log=1
 
-            print -u2 \
-              "burl: could not write post text: ${text_file#./}"
+            print -r -- \
+              "[burl - ERROR] - Could not write post text: ${text_file#./}" \
+              >> "$archive_log"
           fi
         fi
       else
-        # A text-only post may have caused BDFR itself to create a .txt
-        # containing [removed], [deleted], or nothing. Remove such files.
+        # Remove unusable text that the normal downloader may have created
+        # for a removed, deleted, or empty self-post.
         if [[ -f "$text_file" ]] && {
           ! grep -q '[^[:space:]]' "$text_file" 2>/dev/null ||
           grep -Eqi \
@@ -124,59 +516,50 @@ _burl_add_post_text() {
         }; then
           rm -f -- "$text_file" || {
             rc=1
-            keep_log=1
 
-            print -u2 \
-              "burl: could not remove unusable text file: ${text_file#./}"
+            print -r -- \
+              "[burl - ERROR] - Could not remove unusable text file: ${text_file#./}" \
+              >> "$archive_log"
           }
         fi
       fi
     done
 
-    # BDFR can sometimes return 0 even though individual operations failed.
-    if [[ -s "$archive_log" ]] &&
-       grep -Eq "$error_re" "$archive_log"; then
+    if (( json_count == 0 )); then
       rc=1
-      keep_log=1
+      print -r -- \
+        "[burl - ERROR] - BDFR archive produced no submission JSON" \
+        >> "$archive_log"
+    fi
+
+    # BDFR can return 0 even when individual operations failed.
+    if _burl_log_has_failures "$archive_log" "$failure_re"; then
+      rc=1
     fi
 
     if (( rc != 0 )); then
-      print -u2 ""
-      print -u2 "========================================"
-      print -u2 "burl: POST TEXT PROCESSING FAILED"
-      print -u2 "burl: downloaded media was kept"
-      print -u2 "burl: temporary JSON files were deleted"
-      print -u2 "burl: temporary log kept at: $archive_log"
-      print -u2 "========================================"
-
-      if [[ -s "$archive_log" ]]; then
-        print -u2 ""
-        print -u2 "burl: last relevant post-text log lines:"
-
-        grep -E "$error_re" "$archive_log" 2>/dev/null |
-          tail -n 40 >&2
-      fi
+      _burl_report_failure \
+        "POST TEXT OR INLINE MEDIA PROCESSING FAILED" \
+        "$archive_log" \
+        "$display_re" \
+        "burl: files successfully downloaded were kept" \
+        "burl: temporary archive JSON will be deleted"
     fi
 
     return "$rc"
 
   } always {
-    # No JSON archive or malformed JSON is retained.
+    # Archive JSON is never retained, even when logs are kept.
     rm -rf -- "$archive_dir"
-
-    if (( keep_log )) || [[ -n ${BURL_KEEP_LOG:-} ]]; then
-      print -u2 "burl: kept temporary log: $archive_log"
-    else
-      rm -f -- "$archive_log"
-    fi
   }
 }
 
 burl() {
   emulate -L zsh
+  setopt localtraps
 
   local usage
-  usage="usage: burl [-bn|--bdfr-scheme] <url-or-id> [more-urls-or-ids ...]"
+  usage="usage: burl [-bn|--bdfr-scheme] [-wt|--with-text] <url-or-id> [more-urls-or-ids ...]"
 
   (( $# )) || {
     print -u2 "$usage"
@@ -184,11 +567,14 @@ burl() {
   }
 
   local file_scheme="{TITLE}_{POSTID}_{REDDITOR}"
-  local max_wait="${BURL_MAX_WAIT_TIME:-600}"
+  local max_wait="${BURL_MAX_WAIT_TIME:-300}"
+  local with_text=0
 
   local -a args
+  local -a raw_sources
   local -a sources
   local item
+  local source
 
   while (( $# )); do
     item="$1"
@@ -201,14 +587,29 @@ burl() {
         print -u2 "Default file scheme:"
         print -u2 "  {TITLE}_{POSTID}_{REDDITOR}"
         print -u2 ""
-        print -u2 "BDFR-compatible file scheme:"
+        print -u2 "Options:"
         print -u2 "  --bdfr-scheme, -bn"
-        print -u2 "  {REDDITOR}_{TITLE}_{POSTID}"
+        print -u2 "    Use {REDDITOR}_{TITLE}_{POSTID}."
+        print -u2 ""
+        print -u2 "  --with-text, -wt"
+        print -u2 "    Also create .txt sidecars for posts with body text."
+        print -u2 "    For self/rich-text posts, also recover direct Reddit-hosted"
+        print -u2 "    inline images that BDFR's SelfPost downloader may miss."
+        print -u2 "    This performs the second BDFR archive pass."
         return 0
         ;;
 
       --bdfr-scheme|-bn)
         file_scheme="{REDDITOR}_{TITLE}_{POSTID}"
+        ;;
+
+      --with-text|-wt)
+        with_text=1
+        ;;
+
+      --)
+        raw_sources+=("$@")
+        break
         ;;
 
       -*)
@@ -218,24 +619,37 @@ burl() {
         ;;
 
       *)
-        sources+=("$item")
-        args+=(-l "$item")
+        raw_sources+=("$item")
         ;;
     esac
   done
 
-  (( ${#args[@]} )) || {
+  (( ${#raw_sources[@]} )) || {
     print -u2 "$usage"
     return 2
   }
+
+  # Normalize once, then give both BDFR passes exactly the same unambiguous
+  # submission sources.
+  for source in "${raw_sources[@]}"; do
+    source="$(_burl_normalize_source "$source")" || return 1
+    sources+=("$source")
+    args+=(-l "$source")
+  done
 
   if ! (( $+commands[bdfr] )); then
     print -u2 "burl: bdfr not found"
     return 127
   fi
 
-  if ! (( $+commands[jq] )); then
-    print -u2 "burl: jq not found (required for Reddit post text)"
+  if (( with_text )) && ! (( $+commands[jq] )); then
+    print -u2 "burl: jq not found (required by --with-text)"
+    return 127
+  fi
+
+  if (( with_text )) && ! (( $+commands[curl] )); then
+    print -u2 \
+      "burl: curl not found (required by --with-text for inline images)"
     return 127
   fi
 
@@ -247,47 +661,78 @@ burl() {
       ;;
   esac
 
-  local tmp_root
+  local runtime_root
+  local reboot_safe=0
 
   if [[ -n ${BURL_LOG_DIR:-} ]]; then
-    tmp_root="$BURL_LOG_DIR"
+    runtime_root="$BURL_LOG_DIR"
   elif [[
     -n ${XDG_RUNTIME_DIR:-} &&
     -d "$XDG_RUNTIME_DIR" &&
-    -w "$XDG_RUNTIME_DIR"
+    -O "$XDG_RUNTIME_DIR" &&
+    -w "$XDG_RUNTIME_DIR" &&
+    -x "$XDG_RUNTIME_DIR"
   ]]; then
-    tmp_root="$XDG_RUNTIME_DIR"
+    runtime_root="$XDG_RUNTIME_DIR"
+    reboot_safe=1
+  elif [[
+    -d "/run/user/$EUID" &&
+    -O "/run/user/$EUID" &&
+    -w "/run/user/$EUID" &&
+    -x "/run/user/$EUID"
+  ]]; then
+    runtime_root="/run/user/$EUID"
+    reboot_safe=1
   else
-    tmp_root="${TMPDIR:-/tmp}"
+    runtime_root="${TMPDIR:-/tmp}"
   fi
 
-  if [[ ! -d "$tmp_root" || ! -w "$tmp_root" ]]; then
+  if [[ ! -d "$runtime_root" || ! -w "$runtime_root" || ! -x "$runtime_root" ]]; then
     print -u2 \
-      "burl: temporary directory is not writable: $tmp_root"
+      "burl: temporary directory is not usable: $runtime_root"
     return 1
   fi
 
-  local log_dir="${tmp_root%/}/burl-logs"
-
-  mkdir -p -- "$log_dir" || {
-    print -u2 \
-      "burl: could not create log directory: $log_dir"
-    return 1
-  }
-
-  chmod 700 "$log_dir" 2>/dev/null || true
-
+  local work_dir
   local log
   local rc=0
   local partial_rc=0
-  local keep_log=0
+  local keep_work=0
 
-  log="$(mktemp "${log_dir%/}/bdfr.XXXXXX.log")" || return 1
+  work_dir="$(mktemp -d "${runtime_root%/}/burl.XXXXXXXX")" || {
+    print -u2 "burl: could not create a private temporary directory"
+    return 1
+  }
 
-  # Match actual log/error signals, not arbitrary lowercase words like "error"
-  # inside post titles or filenames.
-  local error_re
-  error_re='(^|[[:space:]\[])(ERROR|CRITICAL)([[:space:]\]:-]|$)|Traceback \(most recent call last\)|HTTP Error 429|429 Too Many Requests|Too Many Requests|[Tt]imed out|[Tt]imeout|[Cc]onnection aborted|[Cc]onnection reset|Max retries exceeded'
+  chmod 700 -- "$work_dir" 2>/dev/null || {
+    rm -rf -- "$work_dir"
+    print -u2 "burl: could not secure temporary directory: $work_dir"
+    return 1
+  }
+
+  log="$work_dir/bdfr.log"
+
+  # Clean up on normal returns and catchable interruptions. SIGKILL cannot be
+  # trapped; XDG_RUNTIME_DIR and /run/user/$EUID are reboot-volatile.
+  trap 'rm -rf -- "$work_dir"; return 130' INT
+  trap 'rm -rf -- "$work_dir"; return 143' TERM
+  trap 'rm -rf -- "$work_dir"; return 129' HUP
+
+  if (( ! reboot_safe )); then
+    print -u2 \
+      "burl: warning: $runtime_root is not guaranteed to be cleared at reboot"
+    print -u2 \
+      "burl: warning: leave BURL_LOG_DIR unset and configure XDG_RUNTIME_DIR for that guarantee"
+  fi
+
+  # Use a strict expression to decide whether an exit-0 run had hidden
+  # failures, and a broader expression only for displaying useful context.
+  local failure_re
+  local display_re
+
+  failure_re='(\[[^]]*[[:space:]]-[[:space:]]*(ERROR|CRITICAL)\][[:space:]]*-)|(^|[[:space:]\[])(ERROR|CRITICAL)([[:space:]\]:-]|$)|Traceback \(most recent call last\)|Max retries exceeded|Max wait time exceeded'
+
+  display_re="${failure_re}|HTTP Error[[:space:]]+429|429[[:space:]]+Too Many Requests|Too Many Requests|received[[:space:]]+429[[:space:]]+HTTP response|Response code[[:space:]]+429|[Tt]imed out|[Tt]imeout|[Cc]onnection aborted|[Cc]onnection reset|curl: \([0-9]+\)"
 
   {
     local -a bdfr_opts
@@ -305,59 +750,58 @@ burl() {
     rc=$?
 
     if (( rc != 0 )); then
-      keep_log=1
+      keep_work=1
 
-      print -u2 ""
-      print -u2 "========================================"
-      print -u2 "burl: BDFR FAILED with exit code $rc"
-      print -u2 "burl: temporary log kept at: $log"
-      print -u2 "========================================"
-
-      if [[ -s "$log" ]]; then
-        print -u2 ""
-        print -u2 "burl: last relevant log lines:"
-
-        grep -E "$error_re" "$log" 2>/dev/null |
-          tail -n 40 >&2
-      fi
+      _burl_report_failure \
+        "BDFR FAILED with exit code $rc" \
+        "$log" \
+        "$display_re" \
+        "burl: files already downloaded were kept"
 
       return "$rc"
     fi
 
-    # Download only the post data needed to derive optional .txt sidecars.
-    # Archive JSON is confined to a temporary directory and then deleted.
-    _burl_add_post_text \
-      "$file_scheme" \
-      "$log_dir" \
-      "${sources[@]}" ||
-        partial_rc=1
+    # Only perform the second BDFR pass when explicitly requested.
+    if (( with_text )); then
+      _burl_add_post_text \
+        "$file_scheme" \
+        "$work_dir" \
+        "$failure_re" \
+        "$display_re" \
+        "${sources[@]}" || {
+          partial_rc=1
+          keep_work=1
+        }
+    fi
 
-    # BDFR can exit 0 while individual submissions/media failed.
-    # Only treat clear log-level/errors as partial failures.
-    if [[ -s "$log" ]] &&
-       grep -Eq "$error_re" "$log"; then
+    # BDFR can exit 0 while individual submissions or media failed.
+    if _burl_log_has_failures "$log" "$failure_re"; then
       partial_rc=1
-      keep_log=1
+      keep_work=1
 
-      print -u2 ""
-      print -u2 "========================================"
-      print -u2 "burl: BDFR completed, but the log contains errors"
-      print -u2 "burl: temporary log kept at: $log"
-      print -u2 "========================================"
-      print -u2 ""
-      print -u2 "burl: relevant log lines:"
-
-      grep -E "$error_re" "$log" 2>/dev/null |
-        tail -n 80 >&2
+      _burl_report_failure \
+        "BDFR COMPLETED WITH LOGGED ERRORS" \
+        "$log" \
+        "$display_re" \
+        "burl: some requested data may not have downloaded" \
+        "burl: files successfully downloaded were kept"
     fi
 
     return "$partial_rc"
 
   } always {
-    if (( keep_log )) || [[ -n ${BURL_KEEP_LOG:-} ]]; then
-      print -u2 "burl: kept temporary log: $log"
+    if [[ ${BURL_KEEP_LOG:-0} == 1 ]] ||
+       (( keep_work && reboot_safe )); then
+      print -u2 "burl: kept private temporary data at: $work_dir"
+
+      if (( reboot_safe )); then
+        print -u2 "burl: this directory will not survive reboot/full logout"
+      else
+        print -u2 \
+          "burl: warning: this location may survive reboot; remove it manually when finished"
+      fi
     else
-      rm -f -- "$log"
+      rm -rf -- "$work_dir"
     fi
   }
 }
