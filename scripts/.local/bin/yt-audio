@@ -18,9 +18,6 @@
 #   This script intentionally does not use a yt-dlp download archive.
 #   It also does not create timestamped run folders.
 #
-#   Running it again on the same video will write to the same output path.
-#   Existing files are overwritten because --force-overwrites is used.
-#
 #   This script does not accept TSV files or URL-list files.
 #   It only accepts URLs as command-line arguments.
 
@@ -63,7 +60,7 @@ def build_command(args: argparse.Namespace) -> list[str]:
         "--no-abort-on-error",
         "--continue",
         "--part",
-        "--force-overwrites",
+        "--no-overwrites",
         "--windows-filenames",
         "--trim-filenames",
         "220",

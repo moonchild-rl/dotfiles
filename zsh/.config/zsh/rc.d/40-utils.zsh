@@ -29,3 +29,23 @@ missingfiles() {
   echo "Present in $dir2 but missing in $dir1:"
   [ -n "$out2" ] && printf '%s\n' "$out2" || echo "(none)"
 }
+
+# # To count all files in a folder and its subfolders
+# Usage:
+#   filec              Count all regular files in the current directory and its subfolders
+#   filec <directory>  Count all regular files in the specified directory and its subfolders
+filec() {
+  if [ "$#" -gt 1 ]; then
+    echo "Usage: filec [directory]"
+    return 1
+  fi
+
+  local dir="${1:-.}"
+
+  if [ ! -d "$dir" ]; then
+    echo "Not a directory: $dir"
+    return 1
+  fi
+
+  find "$dir" -type f -printf '.' | wc -c
+}
