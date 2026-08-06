@@ -13,6 +13,7 @@ alias ythd='yt-dlp -f "bv*+ba/b" --format-sort-reset -S "height:1080,+size,+br"'
 alias lg='lazygit'
 alias train='terminal-rain --thunder --sound'
 alias wtr='curl wttr.in'
+alias ats='atuin search -i'  # delete: Ctrl+O → Ctrl+D, or Ctrl+A → d
 
 # Zellij
 alias zj='zellij'
