@@ -1,64 +1,42 @@
-# Reddit post backup helpers.
+# Reddit post backup helpers (zsh).
 #
-# Commands and post types:
-#   burl
-#       Download the post itself through BDFR.
-#       - A text/self post is saved as a .txt file.
-#       - An image, gallery, video, or other media post saves its media.
-#       Therefore, use burl by itself for a normal text-only post.
+# burl URL|ID [...]
+#   Download each submission's primary content with BDFR: self posts become
+#   .txt files; media/gallery posts save their media.
 #
-#   btext
-#       Fetch only a post's optional body/selftext and save it as a matching
-#       .txt file, without requesting comments. This is mainly for media or
-#       link posts that also contain useful body text. It creates nothing when
-#       the post has no usable body and never replaces an existing file.
+# btext URL|ID [...]
+#   Save only a submission's nonempty body/selftext as a matching .txt sidecar.
+#   It never fetches comments and never overwrites an existing file.
+#
+# Typical use:
+#   self post:               burl URL
+#   media/link + body text:  burl URL; btext URL
+#   video via the yt alias:  yt URL; btext URL
+#
+# Both commands accept -bn, --bulk-names, or --bdfr-scheme. Use the same option
+# on both when creating a media file and text sidecar:
+#   default:  {TITLE}_{POSTID}_{REDDITOR}
+#   -bn:      {REDDITOR}_{TITLE}_{POSTID}
 #
 # Examples:
-#   # Text-only post: burl saves the body as .txt.
-#   burl https://www.reddit.com/r/test/comments/abc123/example/
-#   burl abc123
-#
-#   # Media post: burl saves the media.
-#   burl https://redd.it/def456
-#
-#   # Media/link post with additional body text: run both commands.
-#   burl https://redd.it/ghi789
-#   btext https://redd.it/ghi789
-#
-#   # Use the alternative BDFR-style name ordering with either command.
-#   burl -bn abc123 def456
-#   btext --bulk-names abc123 def456
-#
-# Naming:
-#   Default:    {TITLE}_{POSTID}_{REDDITOR}
-#   Bulk/BDFR:  {REDDITOR}_{TITLE}_{POSTID}
-#
-# Options accepted by both commands:
-#   -bn, --bulk-names, --bdfr-scheme
-#       Use BDFR's {REDDITOR}_{TITLE}_{POSTID} ordering.
+#   burl abc123 https://redd.it/def456
+#   burl -bn ghi789; btext -bn ghi789
 #
 # Environment:
 #   BURL_MAX_WAIT_TIME=300
-#       Override BDFR's maximum per-retry wait setting.
-#
+#       BDFR's largest single resource-retry sleep. BDFR waits in 60-second
+#       steps, so 300 can total 15 minutes for one resource.
 #   BURL_KEEP_LOG=1
-#       Keep burl's private per-run temporary directory.
-#
+#       Keep burl's private per-run log directory; otherwise it is deleted.
 #   BURL_LOG_DIR=/path
-#       Override burl's runtime root.
-#
+#       Choose the parent directory for burl's private temporary directory.
 #   BTEXT_BDFR_CONFIG=/path/to/config.cfg
-#       Override the BDFR config used by btext.
-#
+#       Override the BDFR config read by btext.
 #   BTEXT_USER_AGENT='btext/1.0 (personal Reddit backup)'
 #       Override btext's PRAW user agent.
 #
-# Notes:
-#   * burl handles text-only posts itself; btext is not required for them.
-#   * To reproduce the useful part of the old burl -wt/--with-text behavior
-#     for a media/link post, run burl and then btext for the same URL or ID.
-#   * btext uses BDFR's Python environment, PRAW configuration, and exact
-#     Windows-compatible filename formatter, but it never reads comments.
+# btext uses BDFR's Python environment and filename formatter. It retries HTTP
+# 429 responses up to three times, but it never accesses submission.comments.
 
 _burl_log_has_failures() {
   emulate -L zsh
@@ -123,7 +101,7 @@ _burl_normalize_source() {
   local source="$1"
 
   if (( ${#source} >= 5 && ${#source} <= 10 )) &&
-     [[ "$source" != *[^[:alnum:]]* ]]; then
+     [[ "$source" != *[^A-Za-z0-9]* ]]; then
     print -r -- "https://redd.it/$source"
   else
     print -r -- "$source"
@@ -221,12 +199,6 @@ burl() {
         file_scheme="{REDDITOR}_{TITLE}_{POSTID}"
         ;;
 
-      --with-text|-wt)
-        print -u2 "burl: --with-text was split into the separate btext command"
-        print -u2 "burl: run burl for media and btext for the .txt sidecar"
-        return 2
-        ;;
-
       --)
         raw_sources+=("$@")
         break
@@ -267,7 +239,6 @@ burl() {
   done
 
   local runtime_root
-  local reboot_safe=0
 
   if [[ -n ${BURL_LOG_DIR:-} ]]; then
     runtime_root="$BURL_LOG_DIR"
@@ -279,7 +250,6 @@ burl() {
     -x "$XDG_RUNTIME_DIR"
   ]]; then
     runtime_root="$XDG_RUNTIME_DIR"
-    reboot_safe=1
   elif [[
     -d "/run/user/$EUID" &&
     -O "/run/user/$EUID" &&
@@ -287,7 +257,6 @@ burl() {
     -x "/run/user/$EUID"
   ]]; then
     runtime_root="/run/user/$EUID"
-    reboot_safe=1
   else
     runtime_root="${TMPDIR:-/tmp}"
   fi
@@ -300,7 +269,6 @@ burl() {
   local work_dir
   local log
   local rc=0
-  local keep_work=0
 
   work_dir="$(mktemp -d "${runtime_root%/}/burl.XXXXXXXX")" || {
     print -u2 "burl: could not create a private temporary directory"
@@ -321,11 +289,6 @@ burl() {
   trap 'rm -rf -- "$work_dir"; return 143' TERM
   trap 'rm -rf -- "$work_dir"; return 129' HUP
 
-  if (( ! reboot_safe )); then
-    print -u2 "burl: warning: $runtime_root is not guaranteed to be cleared at reboot"
-    print -u2 \
-      "burl: warning: leave BURL_LOG_DIR unset and configure XDG_RUNTIME_DIR for that guarantee"
-  fi
 
   local failure_re
   local display_re
@@ -350,8 +313,6 @@ burl() {
     rc=$?
 
     if (( rc != 0 )); then
-      keep_work=1
-
       _burl_report_failure \
         "BDFR FAILED with exit code $rc" \
         "$log" \
@@ -362,8 +323,6 @@ burl() {
     fi
 
     if _burl_log_has_failures "$log" "$failure_re"; then
-      keep_work=1
-
       _burl_report_failure \
         "BDFR COMPLETED WITH LOGGED ERRORS" \
         "$log" \
@@ -377,16 +336,8 @@ burl() {
     return 0
 
   } always {
-    if [[ ${BURL_KEEP_LOG:-0} == 1 ]] ||
-       (( keep_work && reboot_safe )); then
-      print -u2 "burl: kept private temporary data at: $work_dir"
-
-      if (( reboot_safe )); then
-        print -u2 "burl: this directory will not survive reboot/full logout"
-      else
-        print -u2 \
-          "burl: warning: this location may survive reboot; remove it manually when finished"
-      fi
+    if [[ ${BURL_KEEP_LOG:-0} == 1 ]]; then
+      print -u2 "burl: kept private log directory: $work_dir"
     else
       rm -rf -- "$work_dir"
     fi
@@ -473,10 +424,15 @@ btext() {
 from __future__ import annotations
 
 import configparser
+import math
 import os
 import re
 import sys
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlparse
 
 try:
@@ -490,6 +446,8 @@ except Exception as exc:
 
 
 ID_RE = re.compile(r"^[0-9a-z]{5,10}$", re.IGNORECASE)
+MAX_429_RETRIES = 3
+MAX_429_WAIT = 300
 
 
 def extract_post_id(source: str) -> str:
@@ -504,19 +462,20 @@ def extract_post_id(source: str) -> str:
     if host in {"redd.it", "www.redd.it"} and parts and ID_RE.fullmatch(parts[0]):
         return parts[0].lower()
 
-    for marker in ("comments", "gallery"):
-        try:
-            index = parts.index(marker)
-        except ValueError:
-            continue
+    if host == "reddit.com" or host.endswith(".reddit.com"):
+        for marker in ("comments", "gallery"):
+            try:
+                index = parts.index(marker)
+            except ValueError:
+                continue
 
-        if index + 1 < len(parts) and ID_RE.fullmatch(parts[index + 1]):
-            return parts[index + 1].lower()
+            if index + 1 < len(parts) and ID_RE.fullmatch(parts[index + 1]):
+                return parts[index + 1].lower()
 
     raise ValueError(f"could not find a Reddit submission ID in: {source}")
 
 
-def load_bdfr_config() -> tuple[configparser.ConfigParser, Path | None]:
+def load_bdfr_config() -> tuple[configparser.ConfigParser, Optional[Path]]:
     parser = configparser.ConfigParser()
     override = os.environ.get("BTEXT_BDFR_CONFIG")
 
@@ -601,24 +560,19 @@ def sidecar_path(
 
 
 def write_exclusive(path: Path, text: str) -> bool:
-    if path.exists():
-        return False
-
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = text if text.endswith("\n") else text + "\n"
 
     try:
         with path.open("x", encoding="utf-8", newline="") as handle:
-            try:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            except BaseException:
-                handle.close()
-                path.unlink(missing_ok=True)
-                raise
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
     except FileExistsError:
         return False
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
 
     return True
 
@@ -629,6 +583,60 @@ def describe_http_error(exc: BaseException) -> str:
     if status is not None:
         return f"HTTP {status}: {exc}"
     return str(exc)
+
+
+def retry_after_seconds(exc: BaseException, retry_number: int) -> Optional[int]:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", {})
+    value = headers.get("retry-after") if headers else None
+    seconds: Optional[float] = None
+
+    if value:
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                seconds = (retry_at - datetime.now(timezone.utc)).total_seconds()
+            except (TypeError, ValueError, OverflowError):
+                pass
+
+    if seconds is None or not math.isfinite(seconds) or seconds <= 0:
+        seconds = 60 * (2 ** (retry_number - 1))
+
+    if seconds > MAX_429_WAIT:
+        return None
+    return max(1, math.ceil(seconds))
+
+
+def fetch_submission(reddit: praw.Reddit, post_id: str) -> tuple[praw.models.Submission, str]:
+    for retry_number in range(MAX_429_RETRIES + 1):
+        try:
+            submission = reddit.submission(id=post_id)
+            return submission, submission.selftext or ""
+        except prawcore.TooManyRequests as exc:
+            if retry_number >= MAX_429_RETRIES:
+                raise
+
+            wait = retry_after_seconds(exc, retry_number + 1)
+            if wait is None:
+                print(
+                    f"btext: HTTP 429 for {post_id}; server wait exceeds "
+                    f"{MAX_429_WAIT}s, not retrying",
+                    file=sys.stderr,
+                )
+                raise
+
+            print(
+                f"btext: HTTP 429 for {post_id}; retrying in {wait}s "
+                f"({retry_number + 1}/{MAX_429_RETRIES})",
+                file=sys.stderr,
+            )
+            time.sleep(wait)
+
+    raise AssertionError("unreachable")
 
 
 def main() -> int:
@@ -651,12 +659,7 @@ def main() -> int:
     for source in sources:
         try:
             post_id = extract_post_id(source)
-            submission = reddit.submission(id=post_id)
-
-            # Accessing these fields performs the single submission lookup.
-            body = submission.selftext or ""
-            title = submission.title  # Ensure the object is fully populated.
-            _ = title
+            submission, body = fetch_submission(reddit, post_id)
 
             if not usable_body(body):
                 print(f"btext: no usable post body: {post_id}", file=sys.stderr)

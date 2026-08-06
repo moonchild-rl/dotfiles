@@ -4,23 +4,32 @@ Dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/).
 
 ## Setup on a new machine
 
-Clone the repository & cd into it.
+Clone the repository and cd into its directory.
 
-Create the symlinks:
+Create symlinks for one or more packages:
+
 ```bash
-stow backgrounds fuzzel kitty niri zsh
+stow <package_name(s)>
+```
+
+For example:
+
+```bash
+stow kitty niri zsh
 ```
 
 ## Updating symlinks after changes
 
-Restow:
+Restow packages:
+
 ```bash
-stow -R backgrounds fuzzel kitty niri zsh
+stow -R <package_name(s)>
 ```
 
 ## Removing symlinks
 
-To remove the symlinks for all packages:
+Delete the symlinks:
+
 ```bash
-stow -D backgrounds fuzzel kitty niri zsh
+stow -D <package_name(s)>
 ```

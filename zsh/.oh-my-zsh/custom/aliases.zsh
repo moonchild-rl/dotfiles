@@ -18,9 +18,5 @@ alias wtr='curl wttr.in'
 alias zj='zellij'
 alias zjl='zellij list-sessions'
 alias zjm='zellij attach --create main'
-
-# Kill/restart the active "main" session so config/layout/plugin changes are picked up.
-alias zjk='zellij kill-session main'
-
-# Delete dead/resurrectable sessions from cache.
-alias zjd='zellij delete-all-sessions'
+alias zjk='zellij kill-session main' # Kill/restart so config/layout/plugin changes are picked up.
+alias zjd='zellij delete-all-sessions' # Delete dead/resurrectable sessions from cache.
