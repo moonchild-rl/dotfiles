@@ -1,6 +1,6 @@
 # Dotfiles
 
-My Dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/).
+My dotfiles managed with [GNU Stow](https://www.gnu.org/software/stow/).
 
 ## Setup on a new machine
 
