@@ -123,9 +123,9 @@ show_numeric_shortcuts = false # Alt + <Number> would select that command instan
 #   "^innocuous-cmd .*--secret=.+",
 # ]
 history_filter = [
-  "(?s)\\b(?:yt-dlp|yt|ythd|gallery-dl|gldl)\\b.*://", # downloader used with URL
-  "^\\s*(?:burl|btext)\\b",                            # never store burl/btext
-  "^cd .*webs",
+  '(?s)\b(?:yt-dlp|yt|ythd|gallery-dl|gldl)\b.*://', # downloader anywhere, followed by URL
+  '^\s*(?:burl|btext)\b',                            # burl/btext at command start
+  '^\s*cd\s+.*webs',
 ]
 
 ## prevent commands run with cwd matching any of these regexes from being written
