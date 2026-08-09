@@ -123,10 +123,8 @@ show_numeric_shortcuts = false # Alt + <Number> would select that command instan
 #   "^innocuous-cmd .*--secret=.+",
 # ]
 history_filter = [
-  "(?s)\\byt-dlp\\b.*://",
-  "(?s)\\byt\\b.*://",
-  "(?s)\\bgallery-dl\\b.*://",
-  "(?s)\\bburl\\b.*://",
+  "(?s)\\b(?:yt-dlp|yt|ythd|gallery-dl|gldl)\\b.*://", # downloader used with URL
+  "^\\s*(?:burl|btext)\\b",                            # never store burl/btext
   "^cd .*webs",
 ]
 
