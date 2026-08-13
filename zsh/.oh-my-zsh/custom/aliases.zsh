@@ -14,6 +14,7 @@ alias lg='lazygit'
 alias train='terminal-rain --thunder --sound'
 alias wtr='curl wttr.in'
 alias ats='atuin search -i'  # delete: Ctrl+O → Ctrl+D, or Ctrl+A → d
+alias b='br'
 
 # Zellij
 alias zj='zellij'
