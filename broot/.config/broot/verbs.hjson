@@ -79,21 +79,22 @@ verbs: [
     }
     
     {
-    invocation: lazygit
-    shortcut: lg
-    key: alt-l
-    external: lazygit
-    working_dir: "{git-root}"
-    leave_broot: false
+        invocation: lazygit
+        shortcut: lg
+        key: alt-l
+        external: lazygit
+        working_dir: "{git-root}"
+        leave_broot: false
     }
     
     {
-    invocation: quit
-    shortcut: q
-    key: ctrl-q
-    external: "cd {root}"
-    from_shell: true
+        invocation: quit
+        shortcut: q
+        key: ctrl-q
+        external: "cd {root}"
+        from_shell: true
     }
+
     # Restore Yazi-style filesystem navigation
     {
         key: left
@@ -119,14 +120,38 @@ verbs: [
         execution: "cp -r {file} {parent}/{file-stem}-{version}{file-dot-extension}"
     }
 
-    # By default, `rm` does the system rm, and completely removes
-    # the file. If you prefer to have the file moved to the system
-    # trash, you may use the ':trash' internal with the verb below:
-    # {
-    #     invocation: "rm"
-    #     internal: "trash"
-    #     leave_broot: false
-    # }
+    # Ctrl+C: copy selected file/directory.
+    # After pressing Ctrl+C, type the destination and press Enter.
+    {
+        name: copy
+        invocation: "copy {newpath}"
+        key: ctrl-c
+        auto_exec: false
+        leave_broot: false
+        cmd: ":cp {newpath}"
+    }
+
+    # Ctrl+X: move selected file/directory.
+    # After pressing Ctrl+X, type the destination and press Enter.
+    {
+        name: move
+        invocation: "move {newpath}"
+        key: ctrl-x
+        auto_exec: false
+        leave_broot: false
+        cmd: ":mv {newpath}"
+    }
+
+    # Ctrl+Delete: move selected file/directory to the system trash.
+    # auto_exec: false means Enter is required as confirmation.
+    {
+        name: trash
+        invocation: trash
+        key: ctrl-delete
+        internal: ":trash"
+        auto_exec: false
+        leave_broot: false
+    }
 
     # This verb lets you launch a terminal on ctrl-T
     # (on exit you'll be back in broot)
