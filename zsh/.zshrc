@@ -1,33 +1,11 @@
-# Resolve the real location of this file. Keeps relative includes working when ~/.zshrc is a GNU stow symlink.
-ZSH_DOTFILES_DIR="${ZSH_DOTFILES_DIR:-${${(%):-%N}:A:h}}"
-
-# Source machine/startup options if they exist.
-if [[ -r "$ZSH_DOTFILES_DIR/togglefile.zsh" ]]; then
-  source "$ZSH_DOTFILES_DIR/togglefile.zsh"
-fi
-
-# Defaults
-ZSH_PROMPT="${ZSH_PROMPT:-none}"
-ZSH_STARTUP_FASTFETCH="${ZSH_STARTUP_FASTFETCH:-0}"
-ZSH_STARTUP_ZELLIJ="${ZSH_STARTUP_ZELLIJ:-0}"
-ZSH_USE_ZOXIDE="${ZSH_USE_ZOXIDE:-0}"
-ZSH_USE_ATUIN="${ZSH_USE_ATUIN:-0}"
-ZSH_PRIVATE_FILE="${ZSH_PRIVATE_FILE:-}"
-
-# This is a bit scuffed
-if [[ "$ZSH_PROMPT" == "p10k" && "$ZSH_STARTUP_ZELLIJ" == "1" ]]; then
-  print -P "%F{yellow}zsh:%f disabling Zellij autostart: ZSH_PROMPT=p10k is incompatible with late Zellij startup."
-  ZSH_STARTUP_ZELLIJ=0
-fi
-
-# This block are commands that have to go before instant prompt
-if [[ "$ZSH_STARTUP_FASTFETCH" == "1" ]] && (( $+commands[fastfetch] )); then
+# First block are commands that have to go before instant prompt
+# Show system info at shell startup
+if (( $+commands[fastfetch] )); then
   fastfetch
 fi
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
-if [[ "$ZSH_PROMPT" == "p10k" ]] &&
-   [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
+if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
@@ -39,23 +17,12 @@ export ZSH="$HOME/.oh-my-zsh"
 
 # Theme
 ZSH_THEME=""
-case "$ZSH_PROMPT" in
-  p10k)
-    if [[ -r "${ZSH_CUSTOM:-$ZSH/custom}/themes/powerlevel10k/powerlevel10k.zsh-theme" ]] ||
-       [[ -r "$ZSH/themes/powerlevel10k/powerlevel10k.zsh-theme" ]]; then
-      ZSH_THEME="powerlevel10k/powerlevel10k"
-    else
-      print -u2 "zsh: ZSH_PROMPT=p10k, but Powerlevel10k theme was not found. Continuing without an Oh My Zsh theme."
-    fi
-    ;;
-  starship|none)
-    ZSH_THEME=""
-    ;;
-  *)
-    print -u2 "zsh: unknown ZSH_PROMPT='$ZSH_PROMPT'. Expected: starship, p10k, or none. Continuing without an Oh My Zsh theme."
-    ZSH_THEME=""
-    ;;
-esac
+if [[ -r "${ZSH_CUSTOM:-$ZSH/custom}/themes/powerlevel10k/powerlevel10k.zsh-theme" ]] ||
+   [[ -r "$ZSH/themes/powerlevel10k/powerlevel10k.zsh-theme" ]]; then
+  ZSH_THEME="powerlevel10k/powerlevel10k"
+else
+  print -u2 "zsh: Powerlevel10k theme was not found. Continuing without an Oh My Zsh theme."
+fi
 
 # Set list of themes to pick from when loading at random
 # Setting this variable when ZSH_THEME=random will cause zsh to load
@@ -153,21 +120,19 @@ export LESSHISTFILE='-'
 # - $ZSH_CUSTOM/aliases.zsh
 
 # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-if [[ "$ZSH_PROMPT" == "p10k" ]]; then
-  if [[ -r "$HOME/.p10k.zsh" ]]; then
-    source "$HOME/.p10k.zsh"
-  else
-    print -u2 "zsh: ZSH_PROMPT=p10k, but $HOME/.p10k.zsh was not found."
-  fi
+if [[ -r "$HOME/.p10k.zsh" ]]; then
+  source "$HOME/.p10k.zsh"
+else
+  print -u2 "zsh: $HOME/.p10k.zsh was not found."
 fi
 
 # To make zoxide work
-if [[ "$ZSH_USE_ZOXIDE" == "1" ]] && (( $+commands[zoxide] )); then
+if (( $+commands[zoxide] )); then
   eval "$(zoxide init zsh)"
 fi
 
 # Atuin shell history
-if [[ "$ZSH_USE_ATUIN" == "1" ]] && (( $+commands[atuin] )); then
+if (( $+commands[atuin] )); then
   eval "$(atuin init zsh --disable-ctrl-r --disable-up-arrow)"
 
   _atuin_redraw() {
@@ -321,25 +286,22 @@ if [[ "$ZSH_USE_ATUIN" == "1" ]] && (( $+commands[atuin] )); then
   unset HISTFILE
 fi
 
-# Starship
-if [[ "$ZSH_PROMPT" == "starship" ]] && (( $+commands[starship] )); then
-  eval "$(starship init zsh)"
-fi
-
 # Load modular zsh fragments in sorted order
 for f in ~/.config/zsh/rc.d/*.zsh(N); do
   source "$f"
 done
 
-# Source file with private components for .zshrc
-if [[ -n "$ZSH_PRIVATE_FILE" ]] &&
-   [[ -r "$ZSH_PRIVATE_FILE" ]] &&
+# Source file with private components for .zshrc on moonstation only
+if [[ "${HOST%%.*}" == "moonstation" ]] &&
+   [[ -r "$HOME/Sync/Ricing/.zshrc-private.zsh" ]] &&
    [[ "${TERM_PROGRAM:-}" != "vscode" ]]; then
-  source "$ZSH_PRIVATE_FILE"
+  source "$HOME/Sync/Ricing/.zshrc-private.zsh"
 fi
 
 # Auto-start Zellij for interactive local shells only
-if [[ "$ZSH_STARTUP_ZELLIJ" == "1" ]] &&
+# Uncomment the following line to enable Zellij autostart:
+# ZSH_STARTUP_ZELLIJ=1
+if [[ "${ZSH_STARTUP_ZELLIJ:-0}" == "1" ]] &&
    [[ -o interactive ]] &&
    [[ -z "$ZELLIJ" ]] &&
    [[ -z "$SSH_CONNECTION" ]] &&
