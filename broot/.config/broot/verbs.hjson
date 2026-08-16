@@ -94,6 +94,9 @@ verbs: [
     external: "cd {root}"
     from_shell: true
     }
+    # Restore yazi's navigation with left/right-arrows
+    { key: "left", internal: "up_tree" }
+    { key: "right", internal: "open_stay" }
 
     # On ctrl-b, propose the creation of a copy of the selection.
     # While this might occasionally be useful, this verb is mostly here
