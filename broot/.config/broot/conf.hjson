@@ -120,8 +120,19 @@ special_paths: {
         list: "always",
         sum: "never"
     }
-    # "~/useless": { "show": "never" }
-    # "~/my-link-I-want-to-explore": { "list": "always" }
+    # Remove low-value branches from consideration
+    "**/.git": {
+        list: never
+        sum: never
+    }
+    "**/node_modules": {
+        list: never
+        sum: never
+    }
+    "**/__pycache__": {
+        list: never
+        sum: never
+    }
 }
 
 ###############################################################
