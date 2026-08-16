@@ -29,7 +29,7 @@ verbs: [
         shortcut: e
         key: ctrl-e
         apply_to: text_file
-        external: "$EDITOR {file:space-separated}"
+        external: "$EDITOR +{line} {file:space-separated}"
         leave_broot: false
     }
 
@@ -83,7 +83,7 @@ verbs: [
     shortcut: lg
     key: alt-l
     external: lazygit
-    working_dir: "{directory}"
+    working_dir: "{git-root}"
     leave_broot: false
     }
     
@@ -94,9 +94,17 @@ verbs: [
     external: "cd {root}"
     from_shell: true
     }
-    # Restore yazi's navigation with left/right-arrows
-    { key: "left", internal: "up_tree" }
-    { key: "right", internal: "open_stay" }
+    # Restore Yazi-style filesystem navigation
+    {
+        key: left
+        internal: up_tree
+        panels: [tree]
+    }
+    {
+        key: right
+        internal: open_stay
+        panels: [tree]
+    }
 
     # On ctrl-b, propose the creation of a copy of the selection.
     # While this might occasionally be useful, this verb is mostly here

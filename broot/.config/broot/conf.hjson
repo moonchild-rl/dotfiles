@@ -276,6 +276,14 @@ preview_transformers: [
     //     mode: text
     //     command: [ "zmore" ]
     // }
+    
+    // Convert JXL → PNG with the official JPEG XL decoder (libjxl-utils) before Broot previews it.
+    {
+        "input_extensions": ["jxl"],
+        "output_extension": "png",
+        "mode": "image",
+        "command": ["djxl", "{input-path}", "{output-path}"]
+     }
 ]
 
 ###############################################################
