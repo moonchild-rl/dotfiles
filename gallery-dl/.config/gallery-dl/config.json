@@ -17,7 +17,7 @@
     "twitter": {
       "cookies": [
         "firefox",
-        "~/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
+        "~/.var/app/io.gitlab.librewolf-community/.librewolf",
         null,
         "all"
       ],
@@ -46,7 +46,7 @@
     "instagram": {
       "cookies": [
         "firefox",
-        "~/.var/app/io.gitlab.librewolf-community/.librewolf/swh32wvy.default-default",
+        "~/.var/app/io.gitlab.librewolf-community/.librewolf",
         null,
         null,
         ".instagram.com"
