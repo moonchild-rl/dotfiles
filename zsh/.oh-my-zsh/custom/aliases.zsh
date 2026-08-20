@@ -10,11 +10,13 @@ alias neofetch='fastfetch'
 alias icat='kitten icat'
 alias yt='yt-dlp -f "bv*+ba/b" --format-sort-reset -S "height:720,+size,+br"'
 alias ythd='yt-dlp -f "bv*+ba/b" --format-sort-reset -S "height:1080,+size,+br"'
+alias ytw='yt-dlp -f "bv*+ba/b" --format-sort-reset -S "height:720,vcodec:vp9,+size"'
 alias lg='lazygit'
 alias train='terminal-rain --thunder --sound'
 alias wtr='curl wttr.in'
 alias ats='atuin search -i'  # delete: Ctrl+O → Ctrl+D, or Ctrl+A → d
 alias b='br'
+alias cl='cargo install --list'
 
 # Zellij
 alias zj='zellij'
