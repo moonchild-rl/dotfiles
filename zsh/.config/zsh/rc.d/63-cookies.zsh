@@ -15,7 +15,7 @@ ytc() {
         return 1
     fi
 
-    ytw --cookies-from-browser "firefox:$profile" "$@"
+    yt --cookies-from-browser "firefox:$profile" "$@"
 }
 
 # Run a downloader with fresh cookies from the default LibreWolf Flatpak profile.
