@@ -8,8 +8,8 @@ alias hl='rg -p --passthru'
 alias ff='fastfetch'
 alias neofetch='fastfetch'
 alias icat='kitten icat'
-alias yts='yt-dlp -f "bv*+ba/b" --format-sort-reset -S "height:720,+size"' # smallest
-alias yt='yt-dlp -f "bv+ba[acodec^=opus][abr>=96]/bv+ba[abr>=96]/bv+ba/b" --format-sort-reset -S "height:720,quality,+size"'
+alias yts='yt-dlp -f "bv+ba[acodec^=opus][abr>=96]/bv+ba[abr>=96]/bv+ba/b" --format-sort-reset --format-sort-force -S "res:720,+size,+br"'
+alias ytst='yt-dlp -f "bv*+ba/b" --format-sort-reset -S "height:720,+size"'	# alt! testen
 alias lg='lazygit'
 alias train='terminal-rain --thunder --sound'
 alias wtr='curl wttr.in'

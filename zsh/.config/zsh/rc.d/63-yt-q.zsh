@@ -1,8 +1,14 @@
-# Download videos with a small-file bias: use the smallest stream as a baseline,
-# but allow up to YTQ_MARGIN extra size for better FPS, codec efficiency, or bitrate.
+# Video download helpers:
+#   yts     - smallest files
+#   ytq     - recommended backup mode; small files with quality trade-offs
+#   ytc     - ytq with Firefox cookies
+#   yt-dlp  - full quality
+#
+# ytq targets up to YTQ_RES and may spend up to YTQ_MARGIN
+# percent extra space when it buys a meaningful quality improvement.
 ytq() {
-    local cap=${YTQ_HEIGHT:-720}
-    local margin=${YTQ_MARGIN:-20}
+    local cap=${YTQ_RES:-720}
+    local margin=${YTQ_MARGIN:-15}
     local info selector rc
 
     info=$(mktemp) || return 1
@@ -32,8 +38,6 @@ with open(path, encoding="utf-8") as fh:
 formats = info.get("formats") or []
 duration = info.get("duration") or 0
 
-NONE = (None, "none")
-
 
 def number(x):
     try:
@@ -43,43 +47,52 @@ def number(x):
         return None
 
 
-def est_size(f):
-    # Best case: yt-dlp already knows the exact or approximate size.
-    for key in ("filesize", "filesize_approx"):
-        n = number(f.get(key))
-        if n:
-            return n
+def has_video(f):
+    return (f.get("vcodec") or "none").lower() != "none"
 
-    # Otherwise estimate from bitrate and duration.
-    br = (
-        number(f.get("tbr"))
-        or number(f.get("vbr"))
-        or number(f.get("abr"))
-    )
 
-    if br and duration:
-        return br * 1000 * duration / 8
+def has_audio(f):
+    return (f.get("acodec") or "none").lower() != "none"
+
+
+def stream_res(f):
+    """Use the smaller dimension, like yt-dlp's 'res' sort field."""
+    w = number(f.get("width"))
+    h = number(f.get("height"))
+
+    if w and h:
+        return int(min(w, h))
+    if h:
+        return int(h)
+    if w:
+        return int(w)
 
     return None
 
 
-def codec_rank(v):
-    v = (v or "").lower()
+def est_size(f):
+    # Prefer a real Content-Length/filesize when available.
+    exact = number(f.get("filesize"))
+    if exact:
+        return exact
 
-    if v.startswith("av01") or "av1" in v:
-        return 50
-    if v.startswith("vp09.02") or v.startswith("vp9.2"):
-        return 45
-    if v.startswith("vp09") or v.startswith("vp9"):
-        return 40
-    if v.startswith(("hev1", "hvc1", "hevc", "h265")):
-        return 35
-    if v.startswith(("avc1", "h264")):
-        return 30
-    if v.startswith("vp8"):
-        return 20
+    # Otherwise estimate from the appropriate bitrate.
+    if has_video(f) and not has_audio(f):
+        br = number(f.get("vbr")) or number(f.get("tbr"))
+    elif has_audio(f) and not has_video(f):
+        br = number(f.get("abr")) or number(f.get("tbr"))
+    else:
+        br = (
+            number(f.get("tbr"))
+            or number(f.get("vbr"))
+            or number(f.get("abr"))
+        )
 
-    return 10
+    if br and duration:
+        return br * 1000 * duration / 8
+
+    # Last resort.
+    return number(f.get("filesize_approx"))
 
 
 def fmt_size(n):
@@ -88,21 +101,57 @@ def fmt_size(n):
     return f"{n / 1024 / 1024:.1f} MiB"
 
 
-# Prefer proper video-only streams so audio can be selected independently.
+def codec_rank(v):
+    """
+    Broad compression-efficiency preference.
+
+    Do not distinguish VP9 profile 2 merely because it is profile 2;
+    that is commonly associated with 10-bit/HDR and is not automatically
+    a reason to spend more space.
+    """
+    v = (v or "").lower()
+
+    if v.startswith("av01") or "av1" in v:
+        return 4
+
+    if v.startswith(
+        ("vp09", "vp9", "hev1", "hvc1", "hevc", "h265")
+    ):
+        return 3
+
+    if v.startswith(("avc1", "h264")):
+        return 2
+
+    if v.startswith("vp8"):
+        return 1
+
+    return 0
+
+
+def fps_tier(f):
+    """
+    Only pay extra for a frame-rate increase likely to be obvious.
+
+    This deliberately treats 24/25/30 fps as one general tier instead
+    of spending storage just to turn 29.97 into 30 or 25 into 30.
+    """
+    fps = number(f.get("fps")) or 0
+    return 1 if fps >= 45 else 0
+
+
+# Prefer proper video-only streams.
 videos = [
     f for f in formats
-    if f.get("vcodec") not in NONE
-    and f.get("acodec") in NONE
+    if has_video(f) and not has_audio(f)
 ]
 
 combined = False
 
-# Some sites only expose combined audio/video formats.
+# Fallback for sites exposing only combined formats.
 if not videos:
     videos = [
         f for f in formats
-        if f.get("vcodec") not in NONE
-        and f.get("acodec") not in NONE
+        if has_video(f) and has_audio(f)
     ]
     combined = True
 
@@ -110,33 +159,39 @@ if not videos:
     raise SystemExit("ytq: no usable video format found")
 
 
-# Same soft height cap as your old height:720 setup:
-# use the highest height <= cap.
-# If nothing exists below it, use the lowest available height above it.
-known = []
+# Pick the highest resolution <= cap.
+# If nothing exists below it, use the lowest available resolution above it.
+known_res = [
+    (f, stream_res(f))
+    for f in videos
+]
 
-for f in videos:
-    h = number(f.get("height"))
-    if h:
-        known.append((f, int(h)))
+known_res = [
+    (f, r)
+    for f, r in known_res
+    if r
+]
 
-if known:
-    below = [h for _, h in known if h <= cap]
+if known_res:
+    below = [
+        r for _, r in known_res
+        if r <= cap
+    ]
 
     if below:
         target = max(below)
     else:
-        target = min(h for _, h in known)
+        target = min(r for _, r in known_res)
 
     videos = [
-        f for f, h in known
-        if h == target
+        f for f, r in known_res
+        if r == target
     ]
 else:
     target = None
 
 
-# Find the smallest stream at that resolution.
+# Establish the smallest stream as our storage baseline.
 sized = [
     (f, est_size(f))
     for f in videos
@@ -159,36 +214,38 @@ if known_sizes:
     ]
 else:
     baseline = None
-    pool = [(f, None) for f in videos]
+    pool = sized
 
 
-# Everything in pool is already within 15% of the smallest stream.
+# Crucial difference from the old version:
 #
-# Among those, spend the allowed extra space where it is likely
-# to make a visible difference:
+# We spend extra space only for a meaningful FPS tier or a substantially
+# more efficient codec. We DO NOT maximize bitrate after entering the pool.
 #
-#   1. higher frame rate
-#   2. more efficient/newer codec
-#   3. higher bitrate within otherwise similar streams
-#   4. smaller file as final tie-breaker
-def video_quality(item):
+# If those things are equal, the smaller stream wins.
+def video_rank(item):
     f, size = item
 
+    br = (
+        number(f.get("vbr"))
+        or number(f.get("tbr"))
+        or float("inf")
+    )
+
     return (
-        number(f.get("fps")) or 0,
+        fps_tier(f),
         codec_rank(f.get("vcodec")),
-        number(f.get("vbr")) or number(f.get("tbr")) or 0,
-        -(size or 0),
+        -(size if size is not None else float("inf")),
+        -br,
     )
 
 
-video, video_size = max(pool, key=video_quality)
-
+video, video_size = max(pool, key=video_rank)
 video_id = str(video["format_id"])
 
 print(
     f"ytq: video "
-    f"{video.get('height') or '?'}p, "
+    f"{stream_res(video) or '?'}p, "
     f"{video.get('vcodec')}, "
     f"{video.get('fps') or '?'} fps, "
     f"{fmt_size(video_size)}"
@@ -201,7 +258,6 @@ print(
 )
 
 
-# If there are no separate video/audio streams, use the combined format.
 if combined:
     print(video_id)
     raise SystemExit
@@ -209,8 +265,7 @@ if combined:
 
 audios = [
     f for f in formats
-    if f.get("vcodec") in NONE
-    and f.get("acodec") not in NONE
+    if has_audio(f) and not has_video(f)
 ]
 
 if not audios:
@@ -218,7 +273,7 @@ if not audios:
     raise SystemExit
 
 
-# Respect yt-dlp's preferred/original language where that information exists.
+# Respect yt-dlp's preferred/original audio language.
 numeric_lang = [
     (f, f.get("language_preference"))
     for f in audios
@@ -234,15 +289,7 @@ if numeric_lang:
     ]
 
 
-def abr(f):
-    return (
-        number(f.get("abr"))
-        or number(f.get("tbr"))
-        or 0
-    )
-
-
-# Prefer normal audio over DRC variants when both exist.
+# Prefer normal audio over DRC variants.
 normal_audio = [
     f for f in audios
     if "drc" not in str(f.get("format_id") or "").lower()
@@ -253,49 +300,81 @@ if normal_audio:
     audios = normal_audio
 
 
-# Don't save a tiny amount of space by wrecking audio quality.
-# On YouTube this generally avoids the very low bitrate audio formats.
+def abr(f):
+    return (
+        number(f.get("abr"))
+        or number(f.get("tbr"))
+        or 0
+    )
+
+
+# Don't destroy audio quality just to save a few MiB.
 good = [
     f for f in audios
     if abr(f) >= 96
 ]
 
 if good:
-    audios = good
-
-    # Opus is normally a very good quality/size choice.
-    opus = [
-        f for f in audios
-        if (f.get("acodec") or "").lower().startswith("opus")
+    sized_audio = [
+        (f, est_size(f))
+        for f in good
     ]
 
-    if opus:
-        audios = opus
+    known_audio = [
+        (f, size)
+        for f, size in sized_audio
+        if size
+    ]
 
-    audio = min(
-        audios,
-        key=lambda f: (
-            est_size(f) or float("inf"),
-            abr(f) or float("inf"),
-        ),
+    if known_audio:
+        audio_baseline = min(
+            size for _, size in known_audio
+        )
+
+        # Allow Opus to cost a little more, but not arbitrarily more.
+        audio_pool = [
+            (f, size)
+            for f, size in known_audio
+            if size <= audio_baseline * 1.10
+        ]
+    else:
+        audio_pool = sized_audio
+
+    def audio_rank(item):
+        f, size = item
+
+        opus = (
+            (f.get("acodec") or "")
+            .lower()
+            .startswith("opus")
+        )
+
+        return (
+            1 if opus else 0,
+            -(size if size is not None else float("inf")),
+            -abr(f),
+        )
+
+    audio, audio_size = max(
+        audio_pool,
+        key=audio_rank,
     )
 
 else:
-    # If every available stream is low bitrate, take the best of them.
+    # If everything is below 96 kbps, take the best audio the site has.
     audio = max(audios, key=abr)
+    audio_size = est_size(audio)
 
-
-audio_id = str(audio["format_id"])
 
 print(
     f"ytq: audio "
     f"{audio.get('acodec')}, "
     f"~{abr(audio):g} kbps, "
-    f"{fmt_size(est_size(audio))}",
+    f"{fmt_size(audio_size)}",
     file=sys.stderr,
 )
 
-print(f"{video_id}+{audio_id}")
+print(f"{video_id}+{audio['format_id']}")
 PY
     )
 
