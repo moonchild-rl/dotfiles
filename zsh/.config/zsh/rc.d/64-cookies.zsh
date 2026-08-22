@@ -1,21 +1,36 @@
-# Download videos with cookies from youtube firefox profile
-ytc() {
+# Download with cookies
+# Find the dedicated Firefox .youtube profile used for yt-dlp cookies
+_yt_firefox_profile() {
     local profile
 
     profile=$(find "$HOME/.mozilla/firefox" \
         -maxdepth 1 -type d -name '*.youtube' -print -quit 2>/dev/null)
 
-    if [ -z "$profile" ]; then
+    if [[ -z "$profile" ]]; then
         profile=$(find "$HOME/.var/app/org.mozilla.firefox/.mozilla/firefox" \
             -maxdepth 1 -type d -name '*.youtube' -print -quit 2>/dev/null)
     fi
 
-    if [ -z "$profile" ]; then
+    if [[ -z "$profile" ]]; then
         echo "Could not find Firefox .youtube profile" >&2
         return 1
     fi
 
+    print -r -- "$profile"
+}
+
+# Download video using cookies from the dedicated Firefox YouTube profile (using ytq quality function)
+ytc() {
+    local profile
+    profile=$(_yt_firefox_profile) || return
     ytq --cookies-from-browser "firefox:$profile" "$@"
+}
+
+# Download audio using cookies from the dedicated Firefox YouTube profile
+ytac() {
+    local profile
+    profile=$(_yt_firefox_profile) || return
+    yt-audio --cookies-from-browser "firefox:$profile" "$@"
 }
 
 # Run a downloader with fresh cookies from the default LibreWolf Flatpak profile.
