@@ -49,3 +49,21 @@ filec() {
 
   find "$dir" -type f -printf '.' | wc -c
 }
+
+# lfiles [N] — recursively list the N largest files under the current directory
+# (default: 20), sorted largest first
+lfiles() {
+    local n=${1:-20}
+    local rec bytes path
+
+    find . -type f -printf '%s\t%p\0' 2>/dev/null |
+        sort -z -nr -k1,1 |
+        head -z -n "$n" |
+        while IFS= read -r -d '' rec; do
+            bytes=${rec%%$'\t'*}
+            path=${rec#*$'\t'}
+            printf '%9s  %s\n' \
+                "$(numfmt --to=iec-i --suffix=B "$bytes")" \
+                "$path"
+        done
+}
