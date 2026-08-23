@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+clicked="$(readlink -f -- "$1")"
+dir="$(dirname -- "$clicked")"
+
+# Temporary playlist
+playlist="$(mktemp --suffix=.m3u)"
+trap 'rm -f -- "$playlist"' EXIT
+
+# Find common video formats and sort them naturally:
+# 1.mkv, 2.mkv, 10.mkv instead of 1.mkv, 10.mkv, 2.mkv
+mapfile -d '' files < <(
+    find "$dir" -maxdepth 1 -type f \
+        \( -iname '*.mp4' \
+        -o -iname '*.mkv' \
+        -o -iname '*.webm' \
+        -o -iname '*.avi' \
+        -o -iname '*.mov' \
+        -o -iname '*.m4v' \
+        -o -iname '*.mpg' \
+        -o -iname '*.mpeg' \
+        -o -iname '*.wmv' \
+        -o -iname '*.flv' \
+        -o -iname '*.ts' \
+        -o -iname '*.mts' \
+        -o -iname '*.m2ts' \) \
+        -print0 |
+    sort -zV
+)
+
+# Locate the clicked file in the list
+start=-1
+
+for i in "${!files[@]}"; do
+    if [[ "${files[i]}" == "$clicked" ]]; then
+        start="$i"
+        break
+    fi
+done
+
+if (( start < 0 )); then
+    # Should normally never happen
+    vlc -- "$clicked"
+    exit
+fi
+
+printf '#EXTM3U\n' > "$playlist"
+
+count="${#files[@]}"
+
+# Rotate the list so the clicked video is first.
+for ((n = 0; n < count; n++)); do
+    i=$(( (start + n) % count ))
+    printf '%s\n' "${files[i]}" >> "$playlist"
+done
+
+# --loop is important: it makes "Previous" from the first item
+# wrap around to the video immediately before the clicked one.
+vlc --no-one-instance --loop -- "$playlist"

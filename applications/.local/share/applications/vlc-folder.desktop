@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=VLC - Play Folder From Here
+Comment=Play this video and add neighboring videos to the playlist
+Exec=vlc-folder %f
+Icon=vlc
+Terminal=false
+Categories=AudioVideo;Player;
+MimeType=video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;video/x-ms-wmv;video/ogg;
+NoDisplay=false
