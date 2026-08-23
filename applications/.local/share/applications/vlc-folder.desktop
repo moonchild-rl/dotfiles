@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=VLC - Play Folder From Here
-Comment=Play this video and add neighboring videos to the playlist
-Exec=vlc-folder %f
+Comment=Play this video and add the folder's videos to the playlist
+Exec=/bin/sh -c "exec \\"\\$HOME/.local/bin/vlc-folder\\" \\"\\$1\\"" sh %f
 Icon=vlc
 Terminal=false
-Categories=AudioVideo;Player;
-MimeType=video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;video/x-ms-wmv;video/ogg;
 NoDisplay=false
+StartupNotify=true
+MimeType=video/mp4;video/matroska;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;video/x-ms-wmv;video/x-flv;video/mp2t;video/x-m4v;video/ogg;
+Categories=AudioVideo;Player;

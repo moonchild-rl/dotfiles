@@ -31,6 +31,7 @@ tealdeer
 atuin
 stow
 zellij
+broot
 
 ### Special
 

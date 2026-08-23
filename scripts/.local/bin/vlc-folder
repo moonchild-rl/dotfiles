@@ -6,7 +6,7 @@ clicked="$(readlink -f -- "$1")"
 dir="$(dirname -- "$clicked")"
 
 # Temporary playlist
-playlist="$(mktemp --suffix=.m3u)"
+playlist="$(mktemp --tmpdir="$XDG_RUNTIME_DIR" --suffix=.m3u)"
 trap 'rm -f -- "$playlist"' EXIT
 
 # Find common video formats and sort them naturally:
