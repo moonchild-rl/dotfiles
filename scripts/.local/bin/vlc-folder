@@ -5,9 +5,27 @@ set -euo pipefail
 clicked="$(readlink -f -- "$1")"
 dir="$(dirname -- "$clicked")"
 
+# PID of the VLC instance managed by this launcher.
+pidfile="$XDG_RUNTIME_DIR/vlc-folder.pid"
+
 # Temporary playlist
 playlist="$(mktemp --tmpdir="$XDG_RUNTIME_DIR" --suffix=.m3u)"
-trap 'rm -f -- "$playlist"' EXIT
+
+vlc_pid=""
+
+cleanup() {
+    rm -f -- "$playlist"
+
+    # Remove the PID file only if it still belongs to our VLC.
+    # This avoids an older invocation deleting a newer one's PID file.
+    if [[ -n "$vlc_pid" && -r "$pidfile" ]]; then
+        if [[ "$(<"$pidfile")" == "$vlc_pid" ]]; then
+            rm -f -- "$pidfile"
+        fi
+    fi
+}
+
+trap cleanup EXIT
 
 # Find common video formats, ordered by modification time:
 # oldest -> newest.
@@ -31,7 +49,7 @@ mapfile -d '' files < <(
     cut -z -d ' ' -f2-
 )
 
-# Locate the clicked file in the list
+# Locate the clicked file in the list.
 start=-1
 
 for i in "${!files[@]}"; do
@@ -42,38 +60,44 @@ for i in "${!files[@]}"; do
 done
 
 if (( start < 0 )); then
-    vlc --one-instance --no-playlist-enqueue -- "$clicked"
-    exit
+    printf '#EXTM3U\n%s\n' "$clicked" > "$playlist"
+else
+    printf '#EXTM3U\n' > "$playlist"
+
+    count="${#files[@]}"
+
+    # Rotate the modification-time-sorted list so the clicked video is first.
+    for ((n = 0; n < count; n++)); do
+        i=$(( (start + n) % count ))
+        printf '%s\n' "${files[i]}" >> "$playlist"
+    done
 fi
 
-printf '#EXTM3U\n' > "$playlist"
+# Stop the previous VLC instance started by THIS launcher.
+if [[ -r "$pidfile" ]]; then
+    old_pid="$(<"$pidfile")"
 
-count="${#files[@]}"
+    # Make sure it looks like a valid PID and is still running.
+    if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
 
-# Rotate the modification-time-sorted list so the clicked video is first.
-#
-# Example:
-#
-#   oldest
-#   older
-#   CLICKED
-#   newer
-#   newest
-#
-# becomes:
-#
-#   CLICKED
-#   newer
-#   newest
-#   oldest
-#   older
-#
-# Therefore:
-#   Next     -> next newer file
-#   Previous -> next older file
-for ((n = 0; n < count; n++)); do
-    i=$(( (start + n) % count ))
-    printf '%s\n' "${files[i]}" >> "$playlist"
-done
+        # Extra safety: don't kill the PID if it has been reused by some
+        # unrelated process.
+        if [[ -r "/proc/$old_pid/comm" ]] &&
+           [[ "$(<"/proc/$old_pid/comm")" == "vlc" ]]; then
+            kill "$old_pid"
+        fi
+    fi
+fi
 
-vlc --one-instance --no-playlist-enqueue --loop -- "$playlist"
+# Start a completely fresh VLC instance.
+#
+# --no-one-instance is intentional here: this script manages its own
+# VLC instance instead of relying on VLC's one-instance mechanism.
+vlc --no-one-instance --loop -- "$playlist" &
+
+vlc_pid=$!
+printf '%s\n' "$vlc_pid" > "$pidfile"
+
+# Keep this script alive for as long as VLC is running.
+# That also keeps the temporary M3U around until VLC exits.
+wait "$vlc_pid"
