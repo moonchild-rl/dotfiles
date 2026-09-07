@@ -1,11 +1,3 @@
-# Video download helpers:
-#   yts     - smallest files
-#   ytq     - recommended backup mode; small files with quality trade-offs
-#   ytc     - ytq with Firefox cookies
-#   yt-dlp  - full quality
-#
-# ytq targets up to YTQ_RES and may spend up to YTQ_MARGIN
-# percent extra space when it buys a meaningful quality improvement.
 ytq() {
     local cap=${YTQ_RES:-720}
     local margin=${YTQ_MARGIN:-15}
@@ -13,15 +5,23 @@ ytq() {
 
     info=$(mktemp) || return 1
 
+    # Extract metadata for one media item.
+    #
+    # --playlist-items 1 matters for sites that internally expose a single
+    # post as a playlist/collection (Reddit can do this).
     command yt-dlp \
         --no-playlist \
+        --playlist-items 1 \
         --skip-download \
         -J \
-        "$@" >"$info" || {
-            rc=$?
-            rm -f "$info"
-            return "$rc"
-        }
+        "$@" >"$info"
+
+    rc=$?
+
+    if (( rc != 0 )); then
+        rm -f -- "$info"
+        return "$rc"
+    fi
 
     selector=$(python3 - "$info" "$cap" "$margin" <<'PY'
 import json
@@ -32,10 +32,54 @@ path, cap_s, margin_s = sys.argv[1:]
 cap = int(cap_s)
 margin = float(margin_s)
 
-with open(path, encoding="utf-8") as fh:
-    info = json.load(fh)
 
-formats = info.get("formats") or []
+def fail(message):
+    print(f"ytq: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+with open(path, encoding="utf-8") as fh:
+    root = json.load(fh)
+
+
+def find_media_info(obj):
+    """
+    Find the first actual media object containing formats.
+
+    yt-dlp -J returns a whole playlist object for playlist-like URLs.
+    Some sites, including Reddit, may internally represent a post this way
+    even when the user thinks of it as one piece of media.
+    """
+    if not isinstance(obj, dict):
+        return None
+
+    formats = obj.get("formats")
+    if isinstance(formats, list) and formats:
+        return obj
+
+    entries = obj.get("entries") or []
+
+    for entry in entries:
+        found = find_media_info(entry)
+        if found is not None:
+            return found
+
+    return None
+
+
+info = find_media_info(root)
+
+if info is None:
+    fail("no media entry with usable format information found")
+
+
+formats = [
+    f for f in (info.get("formats") or [])
+    if isinstance(f, dict)
+    and f.get("format_id") is not None
+    and not f.get("has_drm")
+]
+
 duration = info.get("duration") or 0
 
 
@@ -48,15 +92,25 @@ def number(x):
 
 
 def has_video(f):
-    return (f.get("vcodec") or "none").lower() != "none"
+    codec = str(f.get("vcodec") or "none").lower()
+
+    # "images" is used for things such as storyboards and is not an
+    # ordinary playable video stream.
+    return codec not in ("none", "images")
 
 
 def has_audio(f):
-    return (f.get("acodec") or "none").lower() != "none"
+    codec = str(f.get("acodec") or "none").lower()
+    return codec != "none"
 
 
 def stream_res(f):
-    """Use the smaller dimension, like yt-dlp's 'res' sort field."""
+    """
+    Use the smaller dimension, like yt-dlp's 'res' sort field.
+
+    This also behaves sensibly for portrait video:
+    1080x1920 -> 1080p.
+    """
     w = number(f.get("width"))
     h = number(f.get("height"))
 
@@ -91,7 +145,6 @@ def est_size(f):
     if br and duration:
         return br * 1000 * duration / 8
 
-    # Last resort.
     return number(f.get("filesize_approx"))
 
 
@@ -105,11 +158,11 @@ def codec_rank(v):
     """
     Broad compression-efficiency preference.
 
-    Do not distinguish VP9 profile 2 merely because it is profile 2;
-    that is commonly associated with 10-bit/HDR and is not automatically
-    a reason to spend more space.
+    VP9 profile 2 is not treated specially merely for being profile 2;
+    it is commonly associated with 10-bit/HDR and does not automatically
+    justify spending more storage.
     """
-    v = (v or "").lower()
+    v = str(v or "").lower()
 
     if v.startswith("av01") or "av1" in v:
         return 4
@@ -132,172 +185,99 @@ def fps_tier(f):
     """
     Only pay extra for a frame-rate increase likely to be obvious.
 
-    This deliberately treats 24/25/30 fps as one general tier instead
-    of spending storage just to turn 29.97 into 30 or 25 into 30.
+    24/25/30 fps are treated as one general tier.
     """
     fps = number(f.get("fps")) or 0
     return 1 if fps >= 45 else 0
 
 
-# Prefer proper video-only streams.
-videos = [
-    f for f in formats
-    if has_video(f) and not has_audio(f)
-]
+def choose_video(candidates):
+    """
+    Pick a video from one family of formats.
 
-combined = False
+    candidates must either all be video-only or all be combined A/V.
+    """
 
-# Fallback for sites exposing only combined formats.
-if not videos:
-    videos = [
-        f for f in formats
-        if has_video(f) and has_audio(f)
-    ]
-    combined = True
+    if not candidates:
+        return None, None
 
-if not videos:
-    raise SystemExit("ytq: no usable video format found")
-
-
-# Pick the highest resolution <= cap.
-# If nothing exists below it, use the lowest available resolution above it.
-known_res = [
-    (f, stream_res(f))
-    for f in videos
-]
-
-known_res = [
-    (f, r)
-    for f, r in known_res
-    if r
-]
-
-if known_res:
-    below = [
-        r for _, r in known_res
-        if r <= cap
+    # Highest resolution <= cap.
+    # If nothing exists at/below the cap, use the lowest resolution above it.
+    known_res = [
+        (f, stream_res(f))
+        for f in candidates
     ]
 
-    if below:
-        target = max(below)
-    else:
-        target = min(r for _, r in known_res)
-
-    videos = [
-        f for f, r in known_res
-        if r == target
+    known_res = [
+        (f, r)
+        for f, r in known_res
+        if r
     ]
-else:
-    target = None
 
+    if known_res:
+        below = [
+            r for _, r in known_res
+            if r <= cap
+        ]
 
-# Establish the smallest stream as our storage baseline.
-sized = [
-    (f, est_size(f))
-    for f in videos
-]
+        if below:
+            target = max(below)
+        else:
+            target = min(r for _, r in known_res)
 
-known_sizes = [
-    (f, size)
-    for f, size in sized
-    if size
-]
+        candidates = [
+            f for f, r in known_res
+            if r == target
+        ]
 
-if known_sizes:
-    baseline = min(size for _, size in known_sizes)
-    limit = baseline * (1 + margin / 100)
+    # Establish the smallest stream as the storage baseline.
+    sized = [
+        (f, est_size(f))
+        for f in candidates
+    ]
 
-    pool = [
+    known_sizes = [
         (f, size)
-        for f, size in known_sizes
-        if size <= limit
-    ]
-else:
-    baseline = None
-    pool = sized
-
-
-# Crucial difference from the old version:
-#
-# We spend extra space only for a meaningful FPS tier or a substantially
-# more efficient codec. We DO NOT maximize bitrate after entering the pool.
-#
-# If those things are equal, the smaller stream wins.
-def video_rank(item):
-    f, size = item
-
-    br = (
-        number(f.get("vbr"))
-        or number(f.get("tbr"))
-        or float("inf")
-    )
-
-    return (
-        fps_tier(f),
-        codec_rank(f.get("vcodec")),
-        -(size if size is not None else float("inf")),
-        -br,
-    )
-
-
-video, video_size = max(pool, key=video_rank)
-video_id = str(video["format_id"])
-
-print(
-    f"ytq: video "
-    f"{stream_res(video) or '?'}p, "
-    f"{video.get('vcodec')}, "
-    f"{video.get('fps') or '?'} fps, "
-    f"{fmt_size(video_size)}"
-    + (
-        f" | smallest {fmt_size(baseline)}, "
-        f"limit +{margin:g}%"
-        if baseline else ""
-    ),
-    file=sys.stderr,
-)
-
-
-if combined:
-    print(video_id)
-    raise SystemExit
-
-
-audios = [
-    f for f in formats
-    if has_audio(f) and not has_video(f)
-]
-
-if not audios:
-    print(video_id)
-    raise SystemExit
-
-
-# Respect yt-dlp's preferred/original audio language.
-numeric_lang = [
-    (f, f.get("language_preference"))
-    for f in audios
-    if isinstance(f.get("language_preference"), (int, float))
-]
-
-if numeric_lang:
-    best_lang = max(value for _, value in numeric_lang)
-
-    audios = [
-        f for f, value in numeric_lang
-        if value == best_lang
+        for f, size in sized
+        if size
     ]
 
+    if known_sizes:
+        baseline = min(size for _, size in known_sizes)
+        limit = baseline * (1 + margin / 100)
 
-# Prefer normal audio over DRC variants.
-normal_audio = [
-    f for f in audios
-    if "drc" not in str(f.get("format_id") or "").lower()
-    and "drc" not in str(f.get("format_note") or "").lower()
-]
+        pool = [
+            (f, size)
+            for f, size in known_sizes
+            if size <= limit
+        ]
+    else:
+        baseline = None
+        pool = sized
 
-if normal_audio:
-    audios = normal_audio
+    if not pool:
+        return None, None
+
+    def video_rank(item):
+        f, size = item
+
+        br = (
+            number(f.get("vbr"))
+            or number(f.get("tbr"))
+            or float("inf")
+        )
+
+        # Spend storage only for meaningful FPS/codec advantages.
+        # If those are equal, prefer the smaller stream.
+        return (
+            fps_tier(f),
+            codec_rank(f.get("vcodec")),
+            -(size if size is not None else float("inf")),
+            -br,
+        )
+
+    chosen, chosen_size = max(pool, key=video_rank)
+    return chosen, (chosen_size, baseline)
 
 
 def abr(f):
@@ -308,83 +288,236 @@ def abr(f):
     )
 
 
-# Don't destroy audio quality just to save a few MiB.
-good = [
-    f for f in audios
-    if abr(f) >= 96
+def choose_audio(candidates):
+    if not candidates:
+        return None, None
+
+    audios = list(candidates)
+
+    # Respect yt-dlp's preferred/original audio language when supplied.
+    numeric_lang = [
+        (f, f.get("language_preference"))
+        for f in audios
+        if isinstance(f.get("language_preference"), (int, float))
+    ]
+
+    if numeric_lang:
+        best_lang = max(value for _, value in numeric_lang)
+
+        audios = [
+            f for f, value in numeric_lang
+            if value == best_lang
+        ]
+
+    # Prefer normal audio over DRC variants.
+    normal_audio = [
+        f for f in audios
+        if "drc" not in str(f.get("format_id") or "").lower()
+        and "drc" not in str(f.get("format_note") or "").lower()
+    ]
+
+    if normal_audio:
+        audios = normal_audio
+
+    # Don't sacrifice too much audio quality just to save a few MiB.
+    good = [
+        f for f in audios
+        if abr(f) >= 96
+    ]
+
+    if good:
+        sized_audio = [
+            (f, est_size(f))
+            for f in good
+        ]
+
+        known_audio = [
+            (f, size)
+            for f, size in sized_audio
+            if size
+        ]
+
+        if known_audio:
+            audio_baseline = min(
+                size for _, size in known_audio
+            )
+
+            # Allow Opus to cost a little more, but not arbitrarily more.
+            audio_pool = [
+                (f, size)
+                for f, size in known_audio
+                if size <= audio_baseline * 1.10
+            ]
+        else:
+            audio_pool = sized_audio
+
+        def audio_rank(item):
+            f, size = item
+
+            opus = (
+                str(f.get("acodec") or "")
+                .lower()
+                .startswith("opus")
+            )
+
+            return (
+                1 if opus else 0,
+                -(size if size is not None else float("inf")),
+                -abr(f),
+            )
+
+        return max(audio_pool, key=audio_rank)
+
+    # If everything is below 96 kbps, use the best audio available.
+    audio = max(audios, key=abr)
+    return audio, est_size(audio)
+
+
+video_only = [
+    f for f in formats
+    if has_video(f) and not has_audio(f)
 ]
 
-if good:
-    sized_audio = [
-        (f, est_size(f))
-        for f in good
-    ]
+combined = [
+    f for f in formats
+    if has_video(f) and has_audio(f)
+]
 
-    known_audio = [
-        (f, size)
-        for f, size in sized_audio
-        if size
-    ]
+audios = [
+    f for f in formats
+    if has_audio(f) and not has_video(f)
+]
 
-    if known_audio:
-        audio_baseline = min(
-            size for _, size in known_audio
-        )
 
-        # Allow Opus to cost a little more, but not arbitrarily more.
-        audio_pool = [
-            (f, size)
-            for f, size in known_audio
-            if size <= audio_baseline * 1.10
-        ]
-    else:
-        audio_pool = sized_audio
+# Preferred case: separate video + separate audio.
+#
+# Only use this path when BOTH types actually exist.
+if video_only and audios:
+    video, video_info = choose_video(video_only)
 
-    def audio_rank(item):
-        f, size = item
+    if video is None:
+        fail("could not choose a usable video stream")
 
-        opus = (
-            (f.get("acodec") or "")
-            .lower()
-            .startswith("opus")
-        )
+    video_size, baseline = video_info
 
-        return (
-            1 if opus else 0,
-            -(size if size is not None else float("inf")),
-            -abr(f),
-        )
+    audio, audio_size = choose_audio(audios)
 
-    audio, audio_size = max(
-        audio_pool,
-        key=audio_rank,
+    if audio is None:
+        fail("could not choose a usable audio stream")
+
+    print(
+        f"ytq: video "
+        f"{stream_res(video) or '?'}p, "
+        f"{video.get('vcodec') or '?'}, "
+        f"{video.get('fps') or '?'} fps, "
+        f"{fmt_size(video_size)}"
+        + (
+            f" | smallest {fmt_size(baseline)}, "
+            f"limit +{margin:g}%"
+            if baseline else ""
+        ),
+        file=sys.stderr,
     )
 
-else:
-    # If everything is below 96 kbps, take the best audio the site has.
-    audio = max(audios, key=abr)
-    audio_size = est_size(audio)
+    print(
+        f"ytq: audio "
+        f"{audio.get('acodec') or '?'}, "
+        f"~{abr(audio):g} kbps, "
+        f"{fmt_size(audio_size)}",
+        file=sys.stderr,
+    )
+
+    print(
+        f"{video['format_id']}+{audio['format_id']}"
+    )
+
+    raise SystemExit
 
 
-print(
-    f"ytq: audio "
-    f"{audio.get('acodec')}, "
-    f"~{abr(audio):g} kbps, "
-    f"{fmt_size(audio_size)}",
-    file=sys.stderr,
-)
+# Important fallback:
+#
+# Some sites expose a video-only stream but do NOT expose a usable
+# separate audio stream. The old ytq selected that video-only stream and
+# produced a silent download.
+#
+# If a combined A/V format exists, use that instead.
+if combined:
+    video, video_info = choose_video(combined)
 
-print(f"{video_id}+{audio['format_id']}")
+    if video is None:
+        fail("could not choose a usable combined video/audio stream")
+
+    video_size, baseline = video_info
+
+    print(
+        f"ytq: combined "
+        f"{stream_res(video) or '?'}p, "
+        f"{video.get('vcodec') or '?'}, "
+        f"{video.get('acodec') or '?'}, "
+        f"{video.get('fps') or '?'} fps, "
+        f"{fmt_size(video_size)}"
+        + (
+            f" | smallest {fmt_size(baseline)}, "
+            f"limit +{margin:g}%"
+            if baseline else ""
+        ),
+        file=sys.stderr,
+    )
+
+    print(video["format_id"])
+    raise SystemExit
+
+
+# Last resort: a genuinely video-only source.
+if video_only:
+    video, video_info = choose_video(video_only)
+
+    if video is not None:
+        video_size, baseline = video_info
+
+        print(
+            "ytq: warning: site exposes video but no usable audio "
+            "or combined A/V format",
+            file=sys.stderr,
+        )
+
+        print(
+            f"ytq: video "
+            f"{stream_res(video) or '?'}p, "
+            f"{video.get('vcodec') or '?'}, "
+            f"{video.get('fps') or '?'} fps, "
+            f"{fmt_size(video_size)}",
+            file=sys.stderr,
+        )
+
+        print(video["format_id"])
+        raise SystemExit
+
+
+fail("no usable video format found")
 PY
     )
 
     rc=$?
-    rm -f "$info"
+    rm -f -- "$info"
 
-    [ "$rc" -eq 0 ] || return "$rc"
+    if (( rc != 0 )); then
+        print -u2 "ytq: custom selection failed; falling back to yt-dlp's native selection"
+
+        command yt-dlp \
+            --no-playlist \
+            --playlist-items 1 \
+            -f 'bv*+ba/b' \
+            --format-sort-reset \
+            -S "res:${cap},+size" \
+            "$@"
+
+        return $?
+    fi
 
     command yt-dlp \
         --no-playlist \
+        --playlist-items 1 \
         -f "$selector" \
         "$@"
 }
