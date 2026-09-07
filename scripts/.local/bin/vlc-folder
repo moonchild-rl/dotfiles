@@ -9,8 +9,8 @@ dir="$(dirname -- "$clicked")"
 playlist="$(mktemp --tmpdir="$XDG_RUNTIME_DIR" --suffix=.m3u)"
 trap 'rm -f -- "$playlist"' EXIT
 
-# Find common video formats and sort them naturally:
-# 1.mkv, 2.mkv, 10.mkv instead of 1.mkv, 10.mkv, 2.mkv
+# Find common video formats, ordered by modification time:
+# oldest -> newest.
 mapfile -d '' files < <(
     find "$dir" -maxdepth 1 -type f \
         \( -iname '*.mp4' \
@@ -26,8 +26,9 @@ mapfile -d '' files < <(
         -o -iname '*.ts' \
         -o -iname '*.mts' \
         -o -iname '*.m2ts' \) \
-        -print0 |
-    sort -zV
+        -printf '%T@ %p\0' |
+    sort -zn |
+    cut -z -d ' ' -f2-
 )
 
 # Locate the clicked file in the list
@@ -41,8 +42,7 @@ for i in "${!files[@]}"; do
 done
 
 if (( start < 0 )); then
-    # Should normally never happen
-    vlc -- "$clicked"
+    vlc --one-instance --no-playlist-enqueue -- "$clicked"
     exit
 fi
 
@@ -50,12 +50,30 @@ printf '#EXTM3U\n' > "$playlist"
 
 count="${#files[@]}"
 
-# Rotate the list so the clicked video is first.
+# Rotate the modification-time-sorted list so the clicked video is first.
+#
+# Example:
+#
+#   oldest
+#   older
+#   CLICKED
+#   newer
+#   newest
+#
+# becomes:
+#
+#   CLICKED
+#   newer
+#   newest
+#   oldest
+#   older
+#
+# Therefore:
+#   Next     -> next newer file
+#   Previous -> next older file
 for ((n = 0; n < count; n++)); do
     i=$(( (start + n) % count ))
     printf '%s\n' "${files[i]}" >> "$playlist"
 done
 
-# --loop is important: it makes "Previous" from the first item
-# wrap around to the video immediately before the clicked one.
-vlc --no-one-instance --loop -- "$playlist"
+vlc --one-instance --no-playlist-enqueue --loop -- "$playlist"
