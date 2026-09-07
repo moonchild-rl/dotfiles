@@ -2,30 +2,39 @@
 
 set -euo pipefail
 
+if (( $# != 1 )); then
+    printf 'Usage: %s VIDEO\n' "$0" >&2
+    exit 2
+fi
+
+: "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}"
+
 clicked="$(readlink -f -- "$1")"
 dir="$(dirname -- "$clicked")"
 
-# PID of the VLC instance managed by this launcher.
-pidfile="$XDG_RUNTIME_DIR/vlc-folder.pid"
+# Private runtime state for this launcher.
+state_dir="$XDG_RUNTIME_DIR/vlc-folder"
+socket="$state_dir/control.sock"
+lockfile="$state_dir/lock"
 
-# Temporary playlist
-playlist="$(mktemp --tmpdir="$XDG_RUNTIME_DIR" --suffix=.m3u)"
+# Keep files created here private to the current user.
+umask 077
+mkdir -p -- "$state_dir"
 
-vlc_pid=""
+# Serialize multiple very rapid clicks. Without this, two copies of this
+# script could both try to modify/start VLC at the same time.
+exec 9>"$lockfile"
+flock -x 9
 
-cleanup() {
-    rm -f -- "$playlist"
-
-    # Remove the PID file only if it still belongs to our VLC.
-    # This avoids an older invocation deleting a newer one's PID file.
-    if [[ -n "$vlc_pid" && -r "$pidfile" ]]; then
-        if [[ "$(<"$pidfile")" == "$vlc_pid" ]]; then
-            rm -f -- "$pidfile"
-        fi
-    fi
-}
-
-trap cleanup EXIT
+# Use a unique playlist for each invocation.
+#
+# IMPORTANT:
+# Do NOT delete this playlist immediately when the script exits.
+# VLC may still be parsing it after the RC command has returned.
+#
+# These tiny files live under XDG_RUNTIME_DIR and therefore do not persist
+# across login sessions/reboots.
+playlist="$(mktemp --tmpdir="$state_dir" 'playlist.XXXXXX.m3u')"
 
 # Find common video formats, ordered by modification time:
 # oldest -> newest.
@@ -59,45 +68,90 @@ for i in "${!files[@]}"; do
     fi
 done
 
-if (( start < 0 )); then
-    printf '#EXTM3U\n%s\n' "$clicked" > "$playlist"
-else
-    printf '#EXTM3U\n' > "$playlist"
+printf '#EXTM3U\n' > "$playlist"
 
+if (( start < 0 )); then
+    # Should normally never happen.
+    printf '%s\n' "$clicked" >> "$playlist"
+else
     count="${#files[@]}"
 
-    # Rotate the modification-time-sorted list so the clicked video is first.
+    # Rotate the mtime-sorted list so that the clicked video is first.
+    #
+    # Example:
+    #
+    #   test1  oldest
+    #   test2
+    #   test3  CLICKED
+    #   test4  newest
+    #
+    # becomes:
+    #
+    #   test3
+    #   test4
+    #   test1
+    #   test2
+    #
+    # Therefore:
+    #   Next     -> next newer file
+    #   Previous -> next older file
     for ((n = 0; n < count; n++)); do
         i=$(( (start + n) % count ))
         printf '%s\n' "${files[i]}" >> "$playlist"
     done
 fi
 
-# Stop the previous VLC instance started by THIS launcher.
-if [[ -r "$pidfile" ]]; then
-    old_pid="$(<"$pidfile")"
-
-    # Make sure it looks like a valid PID and is still running.
-    if [[ "$old_pid" =~ ^[0-9]+$ ]] && kill -0 "$old_pid" 2>/dev/null; then
-
-        # Extra safety: don't kill the PID if it has been reused by some
-        # unrelated process.
-        if [[ -r "/proc/$old_pid/comm" ]] &&
-           [[ "$(<"/proc/$old_pid/comm")" == "vlc" ]]; then
-            kill "$old_pid"
-        fi
+# If our controlled VLC already exists, talk directly to it.
+if [[ -S "$socket" ]]; then
+    if {
+        printf 'clear\n'
+        printf 'add %s\n' "$playlist"
+        printf 'loop on\n'
+        printf 'logout\n'
+    } | socat - "UNIX-CONNECT:$socket" >/dev/null 2>&1
+    then
+        exit 0
     fi
+
+    # The socket exists but can't be contacted, so it is most likely stale.
+    rm -f -- "$socket"
 fi
 
-# Start a completely fresh VLC instance.
+# No controllable VLC instance exists.
 #
-# --no-one-instance is intentional here: this script manages its own
-# VLC instance instead of relying on VLC's one-instance mechanism.
-vlc --no-one-instance --loop -- "$playlist" &
+# Start a fresh VLC with the RC interface enabled.
+#
+# --no-one-instance is deliberate here. This launcher manages its own VLC
+# instance through the socket. Once it exists, future invocations do not
+# launch VLC at all; they send commands to this instance.
+vlc \
+    --no-one-instance \
+    --extraintf=oldrc \
+    --rc-unix="$socket" \
+    --rc-fake-tty \
+    --loop \
+    -- "$playlist" &
 
 vlc_pid=$!
-printf '%s\n' "$vlc_pid" > "$pidfile"
 
-# Keep this script alive for as long as VLC is running.
-# That also keeps the temporary M3U around until VLC exits.
+# Keep the lock until VLC has had a chance to create its control socket.
+# This prevents two very rapid double-clicks from both starting VLC before
+# the first instance is ready.
+for ((i = 0; i < 100; i++)); do
+    if [[ -S "$socket" ]]; then
+        break
+    fi
+
+    if ! kill -0 "$vlc_pid" 2>/dev/null; then
+        break
+    fi
+
+    sleep 0.02
+done
+
+# Other invocations may now use the socket.
+flock -u 9
+
+# Keep this launcher process around for the VLC instance it started.
+# This is harmless and also gives VLC a normal parent process until it exits.
 wait "$vlc_pid"
