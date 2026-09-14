@@ -12,9 +12,6 @@
   "workbench.colorTheme": "Dracula Theme",
   "workbench.iconTheme": "material-icon-theme",
   "terminal.integrated.fontFamily": "'MesloLGS NF', 'Noto Sans Mono', monospace",
-  "markdown-preview-enhanced.previewTheme": "vscode.css",
-  "markdown-preview-enhanced.codeBlockTheme": "auto.css",
-  "markdown-preview-enhanced.mermaidTheme": "dark",
 
   // Editor display
   "editor.guides.bracketPairs": true, // Favorite setting
