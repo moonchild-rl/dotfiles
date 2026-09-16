@@ -21,3 +21,8 @@ bold = true
 [style.example_variable]
 foreground = { ansi = 13 }
 underline = true
+
+[updates]
+warn_cache_age = "180d"
+auto_update = true
+auto_update_interval_hours = 4320
