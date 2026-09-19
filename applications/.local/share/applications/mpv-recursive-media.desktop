@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Recursive Media
+Comment=Browse images and videos recursively with mpv
+Exec=/home/moon/.local/bin/mpv-recursive-media --gui %f
+Icon=mpv
+Terminal=false
+Categories=AudioVideo;Viewer;
+MimeType=inode/directory;
+StartupNotify=true

@@ -1,0 +1,246 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# mpv-recursive-media
+#
+# Recursively browse images and videos below a directory as one collection.
+#
+# Ordering:
+#   1. current/root directory first
+#   2. subdirectories in natural pathname order
+#   3. files inside each directory by modification time, oldest -> newest
+#
+# Terminal:
+#   mpv-recursive-media
+#   mpv-recursive-media /some/directory
+#
+# --gui is used by the .desktop launcher. If no directory is passed, it opens
+# a directory chooser.
+# ---------------------------------------------------------------------------
+
+gui=0
+
+if [[ "${1:-}" == "--gui" ]]; then
+    gui=1
+    shift
+fi
+
+usage() {
+    printf 'Usage: %s [DIRECTORY]\n' "${0##*/}" >&2
+}
+
+fail() {
+    printf 'mpv-recursive-media: %s\n' "$1" >&2
+
+    if (( gui )) && command -v zenity >/dev/null 2>&1; then
+        zenity \
+            --error \
+            --title='Recursive Media' \
+            --text="$1" \
+            2>/dev/null || true
+    fi
+
+    exit 1
+}
+
+if (( $# > 1 )); then
+    usage
+    exit 2
+fi
+
+# Determine the directory to browse.
+if (( $# == 1 )); then
+    root="$1"
+elif (( gui )); then
+    command -v zenity >/dev/null 2>&1 ||
+        fail "zenity is required when launched graphically."
+
+    root="$(
+        zenity \
+            --file-selection \
+            --directory \
+            --title='Choose media folder'
+    )" || exit 0
+
+    [[ -n "$root" ]] || exit 0
+else
+    root="$PWD"
+fi
+
+[[ -d "$root" ]] || fail "Not a directory: $root"
+
+# Check dependencies.
+for cmd in mpv find sort cut mktemp readlink; do
+    command -v "$cmd" >/dev/null 2>&1 ||
+        fail "Required command not found: $cmd"
+done
+
+root="$(readlink -f -- "$root")"
+
+# ---------------------------------------------------------------------------
+# Temporary state
+# ---------------------------------------------------------------------------
+
+umask 077
+
+runtime_base="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+
+state_dir="$(
+    mktemp -d \
+        --tmpdir="$runtime_base" \
+        'mpv-recursive-media.XXXXXX'
+)"
+
+trap 'rm -rf -- "$state_dir"' EXIT HUP INT TERM
+
+# ---------------------------------------------------------------------------
+# mpv controls used only by this launcher
+# ---------------------------------------------------------------------------
+
+input_conf="$state_dir/input.conf"
+
+cat > "$input_conf" <<'EOF'
+# Previous / next media file.
+LEFT        playlist-prev
+RIGHT       playlist-next
+
+# Previous / next directory.
+Shift+LEFT  playlist-prev-playlist
+Shift+RIGHT playlist-next-playlist
+
+# Since LEFT/RIGHT are used for files, keep short video seeking available.
+Ctrl+LEFT   seek -5
+Ctrl+RIGHT  seek 5
+EOF
+
+# ---------------------------------------------------------------------------
+# Supported media
+# ---------------------------------------------------------------------------
+
+media_expr=(
+    \(
+        -iname '*.jpg'  -o
+        -iname '*.jpeg' -o
+        -iname '*.png'  -o
+        -iname '*.webp' -o
+        -iname '*.gif'  -o
+        -iname '*.bmp'  -o
+        -iname '*.tif'  -o
+        -iname '*.tiff' -o
+        -iname '*.avif' -o
+        -iname '*.heic' -o
+        -iname '*.heif' -o
+        -iname '*.jxl'  -o
+
+        -iname '*.mp4'  -o
+        -iname '*.mkv'  -o
+        -iname '*.webm' -o
+        -iname '*.avi'  -o
+        -iname '*.mov'  -o
+        -iname '*.m4v'  -o
+        -iname '*.mpg'  -o
+        -iname '*.mpeg' -o
+        -iname '*.wmv'  -o
+        -iname '*.flv'  -o
+        -iname '*.ts'   -o
+        -iname '*.mts'  -o
+        -iname '*.m2ts' -o
+        -iname '*.ogv'  -o
+        -iname '*.3gp'  -o
+        -iname '*.3g2'  -o
+        -iname '*.vob'
+    \)
+)
+
+# ---------------------------------------------------------------------------
+# Get directories.
+#
+# The root itself is explicitly first so media directly inside the directory
+# is included. Subdirectories are then naturally sorted.
+# ---------------------------------------------------------------------------
+
+dirs=("$root")
+
+while IFS= read -r -d '' dir; do
+    dirs+=("$dir")
+done < <(
+    find "$root" -mindepth 1 -type d -print0 |
+        LC_ALL=C sort -z -V
+)
+
+# ---------------------------------------------------------------------------
+# Build one playlist per directory.
+#
+# Keeping these separate lets mpv's playlist-next-playlist and
+# playlist-prev-playlist commands jump between directories.
+# ---------------------------------------------------------------------------
+
+playlist_args=()
+
+group_count=0
+file_count=0
+
+for dir in "${dirs[@]}"; do
+    # %T@ = modification time.
+    #
+    # Sort primarily by modification time, oldest -> newest.
+    # If two files have exactly the same mtime, use natural filename order.
+    mapfile -d '' files < <(
+        find "$dir" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type f \
+            "${media_expr[@]}" \
+            -printf '%T@\t%p\0' |
+        LC_ALL=C sort \
+            -z \
+            -t $'\t' \
+            -k1,1n \
+            -k2,2V |
+        cut -z -f2-
+    )
+
+    (( ${#files[@]} == 0 )) && continue
+
+    printf -v playlist \
+        '%s/%06d.m3u' \
+        "$state_dir" \
+        "$group_count"
+
+    printf '#EXTM3U\n' > "$playlist"
+
+    for file in "${files[@]}"; do
+        printf '%s\n' "$file" >> "$playlist"
+    done
+
+    playlist_args+=("--playlist-append=$playlist")
+
+    ((group_count += 1))
+    ((file_count += ${#files[@]}))
+done
+
+(( file_count > 0 )) ||
+    fail "No supported image or video files found below: $root"
+
+printf \
+    'Opening %d media files from %d folders under %s\n' \
+    "$file_count" \
+    "$group_count" \
+    "$root" \
+    >&2
+
+# ---------------------------------------------------------------------------
+# Launch mpv.
+#
+# Images stay open indefinitely.
+# Videos still advance normally when they finish.
+# keep-open=yes prevents mpv from closing when the final item ends.
+# ---------------------------------------------------------------------------
+
+mpv \
+    --input-conf="$input_conf" \
+    --image-display-duration=inf \
+    --keep-open=yes \
+    "${playlist_args[@]}"
