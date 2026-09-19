@@ -1,24 +1,9 @@
 #!/usr/bin/env bash
+# Recursively opens all images/videos below a directory in mpv, grouping media
+# by folder and sorting both folders and files by modification time.
+# Arrow keys move between files; Shift+Arrow jumps between folder playlists.
 
 set -euo pipefail
-
-# ---------------------------------------------------------------------------
-# mpv-recursive-media
-#
-# Recursively browse images and videos below a directory as one collection.
-#
-# Ordering:
-#   1. current/root directory first
-#   2. subdirectories in natural pathname order
-#   3. files inside each directory by modification time, oldest -> newest
-#
-# Terminal:
-#   mpv-recursive-media
-#   mpv-recursive-media /some/directory
-#
-# --gui is used by the .desktop launcher. If no directory is passed, it opens
-# a directory chooser.
-# ---------------------------------------------------------------------------
 
 gui=0
 
@@ -32,13 +17,15 @@ usage() {
 }
 
 fail() {
-    printf 'mpv-recursive-media: %s\n' "$1" >&2
+    local message="$1"
+
+    printf 'mpv-recursive-media: %s\n' "$message" >&2
 
     if (( gui )) && command -v zenity >/dev/null 2>&1; then
         zenity \
             --error \
             --title='Recursive Media' \
-            --text="$1" \
+            --text="$message" \
             2>/dev/null || true
     fi
 
@@ -50,9 +37,13 @@ if (( $# > 1 )); then
     exit 2
 fi
 
-# Determine the directory to browse.
+# ---------------------------------------------------------------------------
+# Choose root directory
+# ---------------------------------------------------------------------------
+
 if (( $# == 1 )); then
     root="$1"
+
 elif (( gui )); then
     command -v zenity >/dev/null 2>&1 ||
         fail "zenity is required when launched graphically."
@@ -65,13 +56,17 @@ elif (( gui )); then
     )" || exit 0
 
     [[ -n "$root" ]] || exit 0
+
 else
     root="$PWD"
 fi
 
 [[ -d "$root" ]] || fail "Not a directory: $root"
 
-# Check dependencies.
+# ---------------------------------------------------------------------------
+# Dependencies
+# ---------------------------------------------------------------------------
+
 for cmd in mpv find sort cut mktemp readlink; do
     command -v "$cmd" >/dev/null 2>&1 ||
         fail "Required command not found: $cmd"
@@ -79,8 +74,13 @@ done
 
 root="$(readlink -f -- "$root")"
 
+input_conf="$HOME/.config/mpv/recursive-media-input.conf"
+
+[[ -f "$input_conf" ]] ||
+    fail "Missing input configuration: $input_conf"
+
 # ---------------------------------------------------------------------------
-# Temporary state
+# Temporary playlist storage
 # ---------------------------------------------------------------------------
 
 umask 077
@@ -94,26 +94,6 @@ state_dir="$(
 )"
 
 trap 'rm -rf -- "$state_dir"' EXIT HUP INT TERM
-
-# ---------------------------------------------------------------------------
-# mpv controls used only by this launcher
-# ---------------------------------------------------------------------------
-
-input_conf="$state_dir/input.conf"
-
-cat > "$input_conf" <<'EOF'
-# Previous / next media file.
-LEFT        playlist-prev
-RIGHT       playlist-next
-
-# Previous / next directory.
-Shift+LEFT  playlist-prev-playlist
-Shift+RIGHT playlist-next-playlist
-
-# Since LEFT/RIGHT are used for files, keep short video seeking available.
-Ctrl+LEFT   seek -5
-Ctrl+RIGHT  seek 5
-EOF
 
 # ---------------------------------------------------------------------------
 # Supported media
@@ -155,38 +135,46 @@ media_expr=(
 )
 
 # ---------------------------------------------------------------------------
-# Get directories.
+# Directory ordering
 #
-# The root itself is explicitly first so media directly inside the directory
-# is included. Subdirectories are then naturally sorted.
+# The root directory itself is always first.
+#
+# All subdirectories are ordered by THEIR OWN modification time:
+# oldest -> newest.
+#
+# Directory mtime changes when entries directly inside the directory are
+# created, removed or renamed.
 # ---------------------------------------------------------------------------
 
 dirs=("$root")
 
-while IFS= read -r -d '' dir; do
-    dirs+=("$dir")
+while IFS= read -r -d '' rec; do
+    dirs+=("${rec#*$'\t'}")
 done < <(
-    find "$root" -mindepth 1 -type d -print0 |
-        LC_ALL=C sort -z -V
+    find "$root" \
+        -mindepth 1 \
+        -type d \
+        -printf '%T@\t%p\0' |
+    LC_ALL=C sort \
+        -z \
+        -t $'\t' \
+        -k1,1n \
+        -k2,2V
 )
 
 # ---------------------------------------------------------------------------
 # Build one playlist per directory.
 #
-# Keeping these separate lets mpv's playlist-next-playlist and
-# playlist-prev-playlist commands jump between directories.
+# Files within each directory are also ordered by mtime:
+# oldest -> newest.
 # ---------------------------------------------------------------------------
 
-playlist_args=()
+playlists=()
 
 group_count=0
 file_count=0
 
 for dir in "${dirs[@]}"; do
-    # %T@ = modification time.
-    #
-    # Sort primarily by modification time, oldest -> newest.
-    # If two files have exactly the same mtime, use natural filename order.
     mapfile -d '' files < <(
         find "$dir" \
             -mindepth 1 \
@@ -209,13 +197,15 @@ for dir in "${dirs[@]}"; do
         "$state_dir" \
         "$group_count"
 
-    printf '#EXTM3U\n' > "$playlist"
+    {
+        printf '#EXTM3U\n'
 
-    for file in "${files[@]}"; do
-        printf '%s\n' "$file" >> "$playlist"
-    done
+        for file in "${files[@]}"; do
+            printf '%s\n' "$file"
+        done
+    } > "$playlist"
 
-    playlist_args+=("--playlist-append=$playlist")
+    playlists+=("$playlist")
 
     ((group_count += 1))
     ((file_count += ${#files[@]}))
@@ -234,13 +224,17 @@ printf \
 # ---------------------------------------------------------------------------
 # Launch mpv.
 #
-# Images stay open indefinitely.
-# Videos still advance normally when they finish.
-# keep-open=yes prevents mpv from closing when the final item ends.
+# Each M3U is passed as a separate playlist input. mpv expands playlist
+# entries and remembers their originating playlist, which lets
+# playlist-next-playlist / playlist-prev-playlist jump between folders.
 # ---------------------------------------------------------------------------
 
-mpv \
+if ! mpv \
     --input-conf="$input_conf" \
     --image-display-duration=inf \
     --keep-open=yes \
-    "${playlist_args[@]}"
+    -- \
+    "${playlists[@]}"
+then
+    fail "mpv exited with an error."
+fi
