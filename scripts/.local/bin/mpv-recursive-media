@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Recursively opens all images/videos below a directory in mpv, grouping media
-# by folder and sorting both folders and files by modification time.
+# Recursively opens images/videos in mpv from a directory or a clicked media
+# file, grouping media by folder and sorting folders/files by modification time.
 # Arrow keys move between files; Shift+Arrow jumps between folder playlists.
 
 set -euo pipefail
@@ -13,7 +13,7 @@ if [[ "${1:-}" == "--gui" ]]; then
 fi
 
 usage() {
-    printf 'Usage: %s [DIRECTORY]\n' "${0##*/}" >&2
+    printf 'Usage: %s [FILE_OR_DIRECTORY]\n' "${0##*/}" >&2
 }
 
 fail() {
@@ -38,41 +38,52 @@ if (( $# > 1 )); then
 fi
 
 # ---------------------------------------------------------------------------
-# Choose root directory
+# Choose file or root directory
 # ---------------------------------------------------------------------------
 
 if (( $# == 1 )); then
-    root="$1"
+    target="$1"
 
 elif (( gui )); then
     command -v zenity >/dev/null 2>&1 ||
         fail "zenity is required when launched graphically."
 
-    root="$(
+    target="$(
         zenity \
             --file-selection \
             --directory \
             --title='Choose media folder'
     )" || exit 0
 
-    [[ -n "$root" ]] || exit 0
+    [[ -n "$target" ]] || exit 0
 
 else
-    root="$PWD"
+    target="$PWD"
 fi
-
-[[ -d "$root" ]] || fail "Not a directory: $root"
 
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
 
-for cmd in mpv find sort cut mktemp readlink; do
+for cmd in mpv find sort cut mktemp readlink dirname; do
     command -v "$cmd" >/dev/null 2>&1 ||
         fail "Required command not found: $cmd"
 done
 
-root="$(readlink -f -- "$root")"
+target="$(readlink -f -- "$target")"
+
+clicked=""
+
+if [[ -d "$target" ]]; then
+    root="$target"
+
+elif [[ -f "$target" ]]; then
+    clicked="$target"
+    root="$(dirname -- "$target")"
+
+else
+    fail "Not a file or directory: $target"
+fi
 
 input_conf="$HOME/.config/mpv/recursive-media-input.conf"
 
@@ -141,9 +152,6 @@ media_expr=(
 #
 # All subdirectories are ordered by THEIR OWN modification time:
 # oldest -> newest.
-#
-# Directory mtime changes when entries directly inside the directory are
-# created, removed or renamed.
 # ---------------------------------------------------------------------------
 
 dirs=("$root")
@@ -165,14 +173,21 @@ done < <(
 # ---------------------------------------------------------------------------
 # Build one playlist per directory.
 #
-# Files within each directory are also ordered by mtime:
+# Files within each directory are ordered by mtime:
 # oldest -> newest.
+#
+# If a specific media file was opened, remember its index within the root
+# playlist. The clicked file always belongs to the root directory because the
+# containing directory becomes the root.
 # ---------------------------------------------------------------------------
 
 playlists=()
 
 group_count=0
 file_count=0
+
+clicked_found=0
+start_index=0
 
 for dir in "${dirs[@]}"; do
     mapfile -d '' files < <(
@@ -200,7 +215,14 @@ for dir in "${dirs[@]}"; do
     {
         printf '#EXTM3U\n'
 
-        for file in "${files[@]}"; do
+        for i in "${!files[@]}"; do
+            file="${files[i]}"
+
+            if [[ -n "$clicked" && "$file" == "$clicked" ]]; then
+                start_index="$i"
+                clicked_found=1
+            fi
+
             printf '%s\n' "$file"
         done
     } > "$playlist"
@@ -214,6 +236,10 @@ done
 (( file_count > 0 )) ||
     fail "No supported image or video files found below: $root"
 
+if [[ -n "$clicked" ]] && (( ! clicked_found )); then
+    fail "The selected file is not a supported media file: $clicked"
+fi
+
 printf \
     'Opening %d media files from %d folders under %s\n' \
     "$file_count" \
@@ -224,15 +250,27 @@ printf \
 # ---------------------------------------------------------------------------
 # Launch mpv.
 #
-# Each M3U is passed as a separate playlist input. mpv expands playlist
-# entries and remembers their originating playlist, which lets
-# playlist-next-playlist / playlist-prev-playlist jump between folders.
+# Each M3U remains a separate playlist so playlist-next-playlist and
+# playlist-prev-playlist can jump between folders.
+#
+# When launched from a specific media file, the first playlist is the file's
+# containing directory. Once mpv expands it, jump to that file's index.
 # ---------------------------------------------------------------------------
 
+mpv_args=(
+    --input-conf="$input_conf"
+    --image-display-duration=inf
+    --keep-open=yes
+)
+
+if [[ -n "$clicked" ]]; then
+    mpv_args+=(
+        --input-commands="playlist-play-index $start_index"
+    )
+fi
+
 if ! mpv \
-    --input-conf="$input_conf" \
-    --image-display-duration=inf \
-    --keep-open=yes \
+    "${mpv_args[@]}" \
     -- \
     "${playlists[@]}"
 then
