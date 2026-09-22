@@ -167,7 +167,7 @@ case "$url" in
             exit 1
         fi
 
-        if gallery-dl -c "$config" -- "$url" >"$log_file" 2>&1; then
+        if gallery-dl -c "$config" -d "$download_root" -- "$url" >"$log_file" 2>&1; then
             success=true
         else
             success=false

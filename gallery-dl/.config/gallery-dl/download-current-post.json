@@ -1,6 +1,5 @@
 {
   "extractor": {
-    "base-directory": "~/Downloads/download-post",
     "post-range": "1",
 
     "twitter": {
