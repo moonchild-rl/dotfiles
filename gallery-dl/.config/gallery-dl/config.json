@@ -119,11 +119,7 @@
   "downloader": {
     "ytdl": {
       "format": "bv*+ba/b",
-      "cmdline-args": [
-        "--format-sort-reset",
-        "-S",
-        "height:720,+size,+br"
-      ]
+      "cmdline-args": ["--format-sort-reset", "-S", "height:720,+size"]
     }
   }
 }

@@ -1,0 +1,30 @@
+{
+  "extractor": {
+    "base-directory": "~/Downloads/download-post",
+    "post-range": "1",
+
+    "twitter": {
+      "directory": ["{author[name]}", "{category}"]
+    },
+
+    "instagram": {
+      "directory": ["{username}", "{category}"]
+    },
+
+    "reddit": {
+      "directory": ["{author}", "{category}"]
+    },
+
+    "bluesky": {
+      "directory": ["{author[handle]}", "{category}"]
+    },
+
+    "ytdl": {
+      "module": "yt_dlp",
+      "directory": [
+        "{uploader|channel|creator|id}",
+        "{subcategory!l}"
+      ]
+    }
+  }
+}

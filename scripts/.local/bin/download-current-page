@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -u
+
+# niri-launched processes do not necessarily inherit the PATH configured by interactive zsh.
+export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:$PATH"
+
+for cmd in wl-copy wl-paste wtype; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        notify-send \
+            --app-name="download-post" \
+            "Download failed" \
+            "Required command not found: $cmd"
+        exit 127
+    fi
+done
+
+# Give the user time to release Mod+Shift+D.
+sleep 0.15
+
+# Prevent an old clipboard URL from being reused if copying fails.
+wl-copy --clear
+
+# Ctrl+L -> select URL
+# Ctrl+C -> copy URL
+# Escape -> return focus to the page
+wtype \
+    -M ctrl l -m ctrl \
+    -s 100 \
+    -M ctrl c -m ctrl \
+    -s 100 \
+    -P Escape -p Escape \
+    -s 50 \
+    -P F6 -p F6
+
+# Wait up to roughly one second for the clipboard to contain the new URL.
+for _ in {1..20}; do
+    if url="$(wl-paste --no-newline --type text 2>/dev/null)" &&
+       [[ "$url" =~ ^https?://[^[:space:]]+$ ]]; then
+        exec "$HOME/.local/bin/download-post"
+    fi
+
+    sleep 0.05
+done
+
+notify-send \
+    --app-name="download-post" \
+    "Download failed" \
+    "Could not copy the current page URL."
+
+exit 1
