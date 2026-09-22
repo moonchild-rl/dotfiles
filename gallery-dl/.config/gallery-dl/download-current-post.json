@@ -4,6 +4,7 @@
     "post-range": "1",
 
     "twitter": {
+      "size": ["medium", "small"],
       "directory": ["{author[name]}", "{category}"]
     },
 
@@ -21,10 +22,7 @@
 
     "ytdl": {
       "module": "yt_dlp",
-      "directory": [
-        "{uploader|channel|creator|id}",
-        "{subcategory!l}"
-      ]
+      "directory": ["{uploader|channel|creator|id}", "{subcategory!l}"]
     }
   }
 }

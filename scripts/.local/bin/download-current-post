@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+
+set -u -o pipefail
+
+# niri-launched processes do not necessarily inherit the PATH configured by interactive zsh.
+export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:$PATH"
+
+app="download-current-post"
+
+config="${XDG_CONFIG_HOME:-$HOME/.config}/gallery-dl/${app}.json"
+download_root="$HOME/Downloads/$app"
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/${app}"
+runtime_dir="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}/${app}"
+
+reddit_max_wait="${BURL_MAX_WAIT_TIME:-300}"
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send --app-name="$app" "$@"
+    fi
+}
+
+require() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        notify "Download failed" "Required command not found: $1"
+        return 127
+    fi
+}
+
+install -d -m 700 "$state_dir" "$runtime_dir" "$download_root"
+
+# Optional explicit URL:
+#
+#   download-post https://example.com/post
+#
+# With no argument, get the current browser URL automatically.
+if (( $# > 1 )); then
+    notify "Download failed" "Usage: download-post [URL]"
+    exit 2
+elif (( $# == 1 )); then
+    url="$1"
+else
+    require wl-copy || exit $?
+    require wl-paste || exit $?
+    require wtype || exit $?
+
+    # Give the user time to release Mod+Shift+D.
+    sleep 0.15
+
+    # Prevent reuse of an old clipboard URL if copying fails.
+    wl-copy --clear
+
+    # Ctrl+L -> select URL
+    # Ctrl+C -> copy URL
+    # Escape/F6 -> return focus to page
+    wtype \
+        -M ctrl l -m ctrl \
+        -s 100 \
+        -M ctrl c -m ctrl \
+        -s 100 \
+        -P Escape -p Escape \
+        -s 50 \
+        -P F6 -p F6
+
+    url=""
+
+    # Wait up to roughly one second for the new URL.
+    for _ in {1..20}; do
+        if candidate="$(wl-paste --no-newline --type text 2>/dev/null)" &&
+           [[ "$candidate" =~ ^https?://[^[:space:]]+$ ]]; then
+            url="$candidate"
+            break
+        fi
+
+        sleep 0.05
+    done
+
+    if [[ -z "$url" ]]; then
+        notify "Download failed" "Could not copy the current page URL."
+        exit 1
+    fi
+fi
+
+# Handle CRLF clipboard contents.
+url="${url//$'\r'/}"
+
+# Accept exactly one HTTP(S) URL.
+if [[ ! "$url" =~ ^https?://[^[:space:]]+$ ]]; then
+    notify \
+        "Download failed" \
+        "Input does not contain exactly one HTTP(S) URL."
+    exit 1
+fi
+
+require flock || exit $?
+require sha256sum || exit $?
+
+# Prevent the same URL from running simultaneously.
+lock_id="$(printf '%s' "$url" | sha256sum | cut -d' ' -f1)"
+
+exec 9>"$runtime_dir/$lock_id.lock"
+
+if ! flock -n 9; then
+    notify "Already downloading" "That URL is already being processed."
+    exit 0
+fi
+
+# Temporary logs.
+log_file="$(mktemp "$runtime_dir/run.XXXXXX.log")"
+bdfr_log=""
+
+cleanup() {
+    rm -f -- "$log_file"
+
+    if [[ -n "${bdfr_log:-}" ]]; then
+        rm -f -- "$bdfr_log"
+    fi
+}
+
+trap cleanup EXIT
+
+notify "Downloading post" "$url"
+
+# Reddit currently blocks gallery-dl's anonymous REST requests on this
+# connection. Route Reddit directly through BDFR instead.
+case "$url" in
+    http://reddit.com/*|https://reddit.com/*|\
+    http://*.reddit.com/*|https://*.reddit.com/*|\
+    http://redd.it/*|https://redd.it/*)
+
+        require bdfr || exit $?
+
+        bdfr_log="$(mktemp "$runtime_dir/bdfr.XXXXXX.log")"
+
+        failure_re='(\[[^]]*[[:space:]]-[[:space:]]*(ERROR|CRITICAL)\][[:space:]]*-)|(^|[[:space:]\[])(ERROR|CRITICAL)([[:space:]\]:-]|$)|Traceback \(most recent call last\)|Max retries exceeded|Max wait time exceeded'
+
+        bdfr download "$download_root" \
+            --folder-scheme '{REDDITOR}/reddit' \
+            --file-scheme '{TITLE}_{POSTID}_{REDDITOR}' \
+            --filename-restriction-scheme windows \
+            --log "$bdfr_log" \
+            --max-wait-time "$reddit_max_wait" \
+            -l "$url" \
+            >"$log_file" 2>&1
+
+        rc=$?
+
+        {
+            printf '\n--- BDFR internal log ---\n'
+            cat "$bdfr_log"
+        } >>"$log_file"
+
+        if (( rc == 0 )) &&
+           ! grep -Eq -- "$failure_re" "$bdfr_log"; then
+            success=true
+        else
+            success=false
+        fi
+        ;;
+
+    *)
+        require gallery-dl || exit $?
+
+        if [[ ! -r "$config" ]]; then
+            notify "Download failed" "Missing config: $config"
+            exit 1
+        fi
+
+        if gallery-dl -c "$config" -- "$url" >"$log_file" 2>&1; then
+            success=true
+        else
+            success=false
+        fi
+        ;;
+esac
+
+if [[ "$success" == true ]]; then
+    notify "Download finished" "$url"
+else
+    tail -n 200 "$log_file" >"$state_dir/last-error.log"
+
+    notify \
+        "Download failed" \
+        "See $state_dir/last-error.log"
+
+    exit 1
+fi

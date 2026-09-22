@@ -125,8 +125,8 @@ binds {
     Mod+P { spawn "flatpak" "run" "io.gitlab.librewolf-community"; }
     
     // Invoke downloader script
-    Mod+Shift+D repeat=false hotkey-overlay-title="Download current page" {
-    spawn "~/.local/bin/download-current-page";
+    Mod+Shift+D repeat=false hotkey-overlay-title="Download current post" {
+    spawn "~/.local/bin/download-current-post";
     }
 
     // Example volume keys mappings for PipeWire & WirePlumber.
