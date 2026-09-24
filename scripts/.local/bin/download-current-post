@@ -2,7 +2,7 @@
 
 set -u -o pipefail
 
-# niri-launched processes do not necessarily inherit the PATH configured by interactive zsh.
+# DE-launched processes do not necessarily inherit the PATH configured by interactive zsh.
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:/usr/bin:$PATH"
 
 app="download-current-post"
@@ -15,6 +15,9 @@ runtime_dir="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}/${app}"
 
 reddit_max_wait="${BURL_MAX_WAIT_TIME:-300}"
 
+# Socket configured for ydotoold.
+export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-/run/ydotool/socket}"
+
 notify() {
     if command -v notify-send >/dev/null 2>&1; then
         notify-send --app-name="$app" "$@"
@@ -25,6 +28,127 @@ require() {
     if ! command -v "$1" >/dev/null 2>&1; then
         notify "Download failed" "Required command not found: $1"
         return 127
+    fi
+}
+
+is_niri() {
+    # NIRI_SOCKET is normally present for processes launched from niri.
+    if [[ -n "${NIRI_SOCKET:-}" ]]; then
+        return 0
+    fi
+
+    # Fallback in case the environment is slightly different.
+    case "${XDG_CURRENT_DESKTOP:-}" in
+        *niri*|*Niri*)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+send_browser_copy_keys_wtype() {
+    if ! command -v wtype >/dev/null 2>&1; then
+        notify \
+            "Download failed" \
+            "Running under niri, but wtype is not installed."
+        return 127
+    fi
+
+    # Ctrl+L -> select URL
+    # Ctrl+C -> copy URL
+    # Escape/F6 -> return focus to page
+    wtype \
+        -M ctrl l -m ctrl \
+        -s 100 \
+        -M ctrl c -m ctrl \
+        -s 100 \
+        -P Escape -p Escape \
+        -s 50 \
+        -P F6 -p F6
+}
+
+send_browser_copy_keys_ydotool() {
+    if ! command -v ydotool >/dev/null 2>&1; then
+        notify \
+            "Download failed" \
+            "This desktop requires ydotool, but ydotool is not installed.
+
+On Fedora, install it with:
+sudo dnf install ydotool
+
+Then configure and start ydotoold."
+        return 127
+    fi
+
+    if [[ ! -S "$YDOTOOL_SOCKET" ]]; then
+        notify \
+            "Download failed" \
+            "ydotool is installed, but its daemon socket was not found:
+
+$YDOTOOL_SOCKET
+
+Check:
+sudo systemctl status ydotool.service
+
+If needed, start it with:
+sudo systemctl enable --now ydotool.service"
+        return 1
+    fi
+
+    # Linux input key codes:
+    #   Ctrl   = 29
+    #   L      = 38
+    #   C      = 46
+    #   Escape = 1
+    #   F6     = 64
+
+    # Ctrl+L
+    if ! ydotool key 29:1 38:1 38:0 29:0; then
+        notify \
+            "Download failed" \
+            "ydotool could not send keyboard input.
+
+Check:
+sudo systemctl status ydotool.service
+
+Also make sure your user can access:
+$YDOTOOL_SOCKET
+
+If you recently added yourself to the ydotool group, log out and back in."
+        return 1
+    fi
+
+    sleep 0.10
+
+    # Ctrl+C
+    if ! ydotool key 29:1 46:1 46:0 29:0; then
+        notify "Download failed" "ydotool failed while sending Ctrl+C."
+        return 1
+    fi
+
+    sleep 0.10
+
+    # Escape
+    if ! ydotool key 1:1 1:0; then
+        notify "Download failed" "ydotool failed while sending Escape."
+        return 1
+    fi
+
+    sleep 0.05
+
+    # F6
+    if ! ydotool key 64:1 64:0; then
+        notify "Download failed" "ydotool failed while sending F6."
+        return 1
+    fi
+}
+
+copy_current_browser_url() {
+    if is_niri; then
+        send_browser_copy_keys_wtype
+    else
+        send_browser_copy_keys_ydotool
     fi
 }
 
@@ -43,7 +167,6 @@ elif (( $# == 1 )); then
 else
     require wl-copy || exit $?
     require wl-paste || exit $?
-    require wtype || exit $?
 
     # Give the user time to release Mod+Shift+D.
     sleep 0.15
@@ -51,17 +174,9 @@ else
     # Prevent reuse of an old clipboard URL if copying fails.
     wl-copy --clear
 
-    # Ctrl+L -> select URL
-    # Ctrl+C -> copy URL
-    # Escape/F6 -> return focus to page
-    wtype \
-        -M ctrl l -m ctrl \
-        -s 100 \
-        -M ctrl c -m ctrl \
-        -s 100 \
-        -P Escape -p Escape \
-        -s 50 \
-        -P F6 -p F6
+    if ! copy_current_browser_url; then
+        exit 1
+    fi
 
     url=""
 
