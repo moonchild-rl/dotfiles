@@ -86,9 +86,13 @@ else
 fi
 
 input_conf="$HOME/.config/mpv/recursive-media-input.conf"
+media_conf="$HOME/.config/mpv/recursive-media.conf"
 
 [[ -f "$input_conf" ]] ||
     fail "Missing input configuration: $input_conf"
+
+[[ -f "$media_conf" ]] ||
+    fail "Missing mpv configuration: $media_conf"
 
 # ---------------------------------------------------------------------------
 # Temporary playlist storage
@@ -258,6 +262,7 @@ printf \
 # ---------------------------------------------------------------------------
 
 mpv_args=(
+    --include="$media_conf"
     --input-conf="$input_conf"
     --image-display-duration=inf
     --keep-open=yes
