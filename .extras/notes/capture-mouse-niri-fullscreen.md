@@ -55,3 +55,24 @@ Ideally, you should now have:
 - No 1080p-sized image surrounded by black space.
 
 The game is effectively running in a fullscreen Gamescope window, with Gamescope managing the input and presentation.
+
+
+## 4. Optional: Play at 1080p but fill the entire 1440p monitor
+
+Another useful Gamescope feature is resolution scaling.
+
+For example, if a game is too demanding at 1440p, you can render it at 1080p while still displaying it fullscreen on your 1440p monitor.
+
+Use these Steam launch options:
+
+```
+gamescope -f -w 1920 -h 1080 -W 2560 -H 1440 --force-grab-cursor --backend sdl -- %command%
+```
+
+The game renders at 1920×1080, but Gamescope scales it to 2560×1440.
+
+---
+
+Gamescope is particularly useful when a game has problems with mouse capture, fullscreen behavior, resolutions or scaling. It also provides a consistent display environment for games originally designed around X11 behavior.
+
+You can selectively enable it in each game's Steam launch options rather than using it globally.

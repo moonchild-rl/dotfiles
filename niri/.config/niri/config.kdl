@@ -44,6 +44,7 @@ layout {
         proportion 0.33333
         proportion 0.5
         proportion 0.66667
+        proportion 1.0
     }
     // You can also customize the heights that "switch-preset-window-height" (Mod+Shift+R) toggles between.
     // preset-window-heights { }
@@ -84,12 +85,14 @@ window-rule {
 
 window-rule {
     match app-id=r#"firefox$"#
-    open-maximized true
+    exclude title="^Picture-in-Picture$"
+    open-maximized-to-edges true
 }
 
 window-rule {
     match app-id=r#"librewolf$"#
-    open-maximized true
+    exclude title="^Picture-in-Picture$"
+    open-maximized-to-edges true
 }
 
 // The following is added according to dms>Compositor Setup
@@ -265,7 +268,7 @@ binds {
     Mod+R { switch-preset-column-width; }
     Mod+Shift+R { switch-preset-window-height; }
     Mod+Ctrl+R { reset-window-height; }
-    Mod+F { maximize-column; }
+    Mod+F { maximize-window-to-edges; } // maximize-column by using Mod+R
     Mod+Shift+F { fullscreen-window; }
 
     // Expand the focused column to space not taken up by other fully visible columns.
