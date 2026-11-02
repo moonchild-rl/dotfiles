@@ -1,3 +1,4 @@
+>Intended to capture the mouse during gameplay on niri. Made Boltgun not start. Use at your own risk.
 ## Gamescope
 
 Gamescope is a lightweight compositor developed by Valve, also used as part of the Steam Deck's gaming environment. It runs a game inside a managed display environment instead of letting the game handle everything directly through niri.
