@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=mpv Lazy
+Comment=Single-instance media player with lazy recursive directory navigation
+Exec=/home/moon/.local/bin/mpv-lazy %f
+Icon=mpv
+Terminal=false
+Categories=AudioVideo;Player;
+MimeType=video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;image/jpeg;image/png;image/webp;image/gif;audio/mpeg;audio/flac;audio/ogg;audio/x-wav;
+StartupNotify=false
