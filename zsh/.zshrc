@@ -1,7 +1,7 @@
 # First block are commands that have to go before instant prompt
-# Show system info at shell startup
+# Show system info at shell startup (w/o config because publicip slows down startup)
 if (( $+commands[fastfetch] )); then
-  fastfetch
+  fastfetch --config none
 fi
 
 # Enable Powerlevel10k instant prompt. Should stay close to the top of ~/.zshrc.
