@@ -262,6 +262,20 @@ end)
 mp.register_event('file-loaded', function()
     local path = mp.get_property('path')
     if not path then return end
+    -- Loop videos and animations, but not audio files.
+    local ext = (path:match('%.([^%.]+)$') or ''):lower()
+
+    local audio_extensions = {
+        mp3 = true, m4a = true, aac = true,
+        flac = true, ogg = true, opus = true,
+        wav = true, wma = true, aiff = true,
+        alac = true, ape = true
+    }
+
+    mp.set_property(
+        'loop-file',
+        audio_extensions[ext] and 'no' or 'inf'
+    )
     if internal_file == path then
         internal_file = nil
         current_file = path
@@ -271,16 +285,6 @@ mp.register_event('file-loaded', function()
     current_file = path
     root = parent_dir(path)
     reset_caches()
-end)
-
--- Advance video/audio automatically when playback reaches the end.
-mp.register_event('end-file', function(ev)
-    if ev.reason == 'eof' and current_file then
-        local ended = current_file
-        mp.add_timeout(0, function()
-            if current_file == ended then next_file() end
-        end)
-    end
 end)
 
 mp.add_forced_key_binding('RIGHT', 'lazy-next', next_file)

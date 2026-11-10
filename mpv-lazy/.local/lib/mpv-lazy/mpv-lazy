@@ -98,6 +98,7 @@ def main() -> int:
         cmd = [
             "mpv", "--no-config", "--idle=yes", "--force-window=yes",
             "--image-display-duration=inf", "--keep-open=no",
+            "--volume=50",
             f"--script={lua}", f"--input-ipc-server={sock_path}",
         ]
         try:
