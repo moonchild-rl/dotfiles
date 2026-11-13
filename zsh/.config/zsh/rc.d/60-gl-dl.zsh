@@ -104,9 +104,13 @@ _gl_reddit_report() {
       grep -Ei '\[(error|warning)\]|\[error\]|\[warning\]' "$log" | tail -n 8 >&2
     fi
   elif (( ! problem )); then
-    if [[ "$saved" == yes ]] && [[ -f "$log" ]] && grep -qi 'No results for' "$log"; then
+    if [[ -f "$log" ]] && grep -qi 'No results for' "$log"; then
       problem=1
-      print -u2 -r -- "gl-saved: no saved posts were returned. Verify your Reddit username and browser login/cookies. See $log"
+      if [[ "$saved" == yes ]]; then
+        print -u2 -r -- "gl-saved: no saved posts were returned. Verify your Reddit username and browser login/cookies. See $log"
+      else
+        print -u2 -r -- "gallery-dl returned no results for at least one input. See $log"
+      fi
     else
       print -r -- 'Download finished with no reported errors.'
     fi
@@ -132,8 +136,8 @@ _gl_reddit_run() {
     *) print -u2 -r -- "Internal error: unknown layout '$layout'"; return 2 ;;
   esac
 
-  # Save a text file for every Reddit post, even text-only posts.
-  local text_processor='[{"name":"metadata","event":"post","mode":"custom","filename":"{title[:100]}_{id}_{author}.txt","skip":true,"filter":"locals().get(\"title\") is not None","content-format":"{title}\n\n{selftext}\n\nhttps://www.reddit.com{permalink}\n"}]'
+  # Keep text posts and media captions, without adding text files to media-only posts.
+  local text_processor='[{"name":"metadata","event":"post","mode":"custom","filename":"{title[:100]}_{id}_{author}.txt","skip":true,"filter":"bool(locals().get(\"is_self\")) or bool((locals().get(\"selftext\") or \"\").strip())","content-format":"{title}\n\n{selftext}\n\nhttps://www.reddit.com{permalink}\n"}]'
 
   command gallery-dl --config-ignore \
     -o extractor.reddit.api=rest \
