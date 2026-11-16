@@ -1,7 +1,10 @@
 # Gallery-dl shortcuts. Source this file from Zsh.
 # For saved posts, set: export GL_REDDIT_USER='YourRedditUsername'
 # Optional browser:   export GL_REDDIT_BROWSER=firefox
-# Optional smaller videos: export GL_REDDIT_VIDEO_FORMAT='bv.2+ba/bv+ba/bv.2/bv/b'
+# Reddit video quality: gldl defaults to the 2nd-best video; use -1 for best.
+# gl-saved, gl-redditor, and gl-subreddit default to best. Use -2, -3, or -4
+# with any command to request that ranked video stream (plus audio, if present).
+# Ranks are per post, so a given flag does not guarantee a fixed size or resolution.
 # Run any command with --help for examples.
 
 _gl_positive_integer() {
@@ -144,10 +147,15 @@ _gl_reddit_report() {
 }
 
 # Internal Reddit downloader. OUT is a folder; LAYOUT is flat, subreddit, or author.
+# VIDEO_RANK is 1 (best, gallery-dl default) or 2-4 (yt-dlp-ranked video-only stream).
 _gl_reddit_run() {
   emulate -L zsh
-  local out="$1" layout="$2" report="$3"
-  shift 3
+  local out="$1" layout="$2" report="$3" video_rank="$4"
+  shift 4
+  case "$video_rank" in
+    1|2|3|4) ;;
+    *) print -u2 -r -- "Internal error: unknown video rank '$video_rank'"; return 2 ;;
+  esac
   local -a destination
   case "$layout" in
     flat)      destination=(-D "$out") ;;
@@ -162,8 +170,17 @@ _gl_reddit_run() {
   local ytdl_module
   ytdl_module="$(_gl_ytdl_module)"
   local -a video_options
-  [[ -n "${GL_REDDIT_VIDEO_FORMAT:-}" ]] &&
-    video_options=(-o "downloader.ytdl.format=$GL_REDDIT_VIDEO_FORMAT")
+  if (( video_rank > 1 )); then
+    # Prefer the requested video-only rank with the best audio. If unavailable,
+    # fall back through better video ranks, then allow video-only/combined files.
+    local -a formats
+    local integer level
+    for (( level=video_rank; level>=2; level-- )); do formats+=("bv.$level+ba"); done
+    formats+=(bv+ba)
+    for (( level=video_rank; level>=2; level-- )); do formats+=("bv.$level"); done
+    formats+=(bv b)
+    video_options=(-o "downloader.ytdl.format=${(j:/:)formats}")
+  fi
 
   command gallery-dl --config-ignore \
     -o extractor.reddit.api=rest \
@@ -193,17 +210,30 @@ _gl_reddit_run() {
 gldl() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-    print -r -- 'Usage: gldl URL|REDDIT_POST_ID [URL ...]'
-    print -r -- 'Download to the current directory. Reddit links use Firefox cookies.'
-    print -r -- 'Examples: gldl abc123    gldl "https://www.reddit.com/r/linux/comments/abc123/"'
+    print -r -- 'Usage: gldl [-1|-2|-3|-4] URL|REDDIT_POST_ID [URL ...]'
+    print -r -- 'Reddit videos default to the 2nd-best video. -1 selects best; -3/-4 select lower ranks.'
+    print -r -- 'Download to the current directory. Reddit links use browser cookies.'
+    print -r -- 'Examples: gldl abc123    gldl -1 abc123    gldl -4 "https://www.reddit.com/r/linux/comments/abc123/"'
     return 0
   fi
-  (( $# > 0 )) || { _gl_error gldl 'provide at least one URL or Reddit post ID'; return 2; }
+  local src video_rank=2 video_flag=''
+  local -a inputs
+  for src in "$@"; do
+    case "$src" in
+      -1|-2|-3|-4)
+        [[ -z "$video_flag" ]] || { _gl_error gldl 'choose only one video quality flag'; return 2; }
+        video_flag="$src"
+        video_rank="${src#-}" ;;
+      -*) _gl_error gldl "unknown option: $src"; return 2 ;;
+      *) inputs+=("$src") ;;
+    esac
+  done
+  (( ${#inputs[@]} )) || { _gl_error gldl 'provide at least one URL or Reddit post ID'; return 2; }
   _gl_check_program gldl || return $?
 
-  local src rc=0 err=0
+  local rc=0 err=0
   local -a reddit other
-  for src in "$@"; do
+  for src in "${inputs[@]}"; do
     case "$src" in
       *://reddit.com/*|*://*.reddit.com/*|*://redd.it/*) reddit+=("$src") ;;
       *)
@@ -222,8 +252,11 @@ gldl() {
     _gl_check_program gldl reddit || return $?
     local report
     report="$(_gl_reddit_start gldl)" || { print -u2 -r -- 'gldl: cannot create temporary report directory.'; return 1; }
-    _gl_reddit_run "$PWD" flat "$report" "${reddit[@]}" || rc=$?
+    _gl_reddit_run "$PWD" flat "$report" "$video_rank" "${reddit[@]}" || rc=$?
     _gl_reddit_report "$report" "$rc" no || err=1
+  elif [[ -n "$video_flag" ]]; then
+    _gl_error gldl 'video quality flags apply only to Reddit posts'
+    return 2
   fi
   if (( ${#other[@]} )); then
     # Keep the normal config for other websites, but ignore its shared archive.
@@ -239,15 +272,27 @@ gldl() {
 gl-saved() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-    print -r -- 'Usage: gl-saved [LIMIT] [REDDIT_USERNAME]'
-    print -r -- 'Download newest saved entries, grouped by subreddit.'
-    print -r -- 'Examples: gl-saved 20    gl-saved 50 MyUsername'
+    print -r -- 'Usage: gl-saved [LIMIT] [REDDIT_USERNAME] [-2|-3|-4]'
+    print -r -- 'Download newest saved entries, grouped by subreddit. Best video is the default.'
+    print -r -- 'Examples: gl-saved 20    gl-saved 50 MyUsername -2'
     print -r -- 'Set GL_REDDIT_USER to avoid typing your username.'
     print -r -- 'Error reports are stored temporarily under /tmp (or $TMPDIR).'
     return 0
   fi
 
-  local limit='' username="${GL_REDDIT_USER:-}"
+  local limit='' username="${GL_REDDIT_USER:-}" video_rank=1 arg
+  local -a inputs
+  for arg in "$@"; do
+    case "$arg" in
+      -2|-3|-4)
+        (( video_rank == 1 )) || { _gl_error gl-saved 'choose only one video quality flag'; return 2; }
+        video_rank="${arg#-}" ;;
+      -h|--help) gl-saved --help; return 0 ;;
+      -*) _gl_error gl-saved "unknown option: $arg"; return 2 ;;
+      *) inputs+=("$arg") ;;
+    esac
+  done
+  set -- "${inputs[@]}"
   if _gl_integer "${1:-}"; then
     _gl_positive_integer "$1" || { _gl_error gl-saved 'LIMIT must be positive'; return 2; }
     limit="$1"; shift
@@ -267,7 +312,7 @@ gl-saved() {
   [[ -n "$limit" ]] && opts+=(--post-range "1-$limit")
   report="$(_gl_reddit_start gl-saved)" || { print -u2 -r -- 'gl-saved: cannot create temporary report directory.'; return 1; }
   print -r -- "Saving posts to $out"
-  _gl_reddit_run "$out" subreddit "$report" "${opts[@]}" "https://www.reddit.com/user/$username/saved/" || rc=$?
+  _gl_reddit_run "$out" subreddit "$report" "$video_rank" "${opts[@]}" "https://www.reddit.com/user/$username/saved/" || rc=$?
   _gl_reddit_report "$report" "$rc" yes
 }
 
@@ -275,21 +320,27 @@ gl-saved() {
 gl-redditor() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-    print -r -- 'Usage: gl-redditor [LIMIT] [--new|--top] [--time PERIOD] USER [...]'
-    print -r -- 'Default: newest submissions, no limit.'
+    print -r -- 'Usage: gl-redditor [LIMIT] [--new|--top] [--time PERIOD] [-2|-3|-4] USER [...]'
+    print -r -- 'Default: newest submissions, no limit, best video.'
     print -r -- 'PERIOD: all, year, month, week, day, hour (with --top).'
     print -r -- 'Examples: gl-redditor 100 SomeUser'
-    print -r -- '          gl-redditor 200 --top --time month User1 User2'
+    print -r -- '          gl-redditor 200 --top --time month -2 User1 User2'
     return 0
   fi
-  local limit='' sort=new period=all
+  local limit='' sort=new period=all video_rank=1
   local -a users urls opts
+  if [[ "${1:-}" == -[234] ]]; then
+    video_rank="${1#-}"; shift
+  fi
   if _gl_integer "${1:-}"; then
     _gl_positive_integer "$1" || { _gl_error gl-redditor 'LIMIT must be positive'; return 2; }
     limit="$1"; shift
   fi
   while (( $# )); do
     case "$1" in
+      -2|-3|-4)
+        (( video_rank == 1 )) || { _gl_error gl-redditor 'choose only one video quality flag'; return 2; }
+        video_rank="${1#-}"; shift ;;
       --new) sort=new; shift ;;
       --top) sort=top; shift ;;
       --time|-t)
@@ -320,7 +371,7 @@ gl-redditor() {
   _gl_check_program gl-redditor reddit || return $?
   [[ -n "$limit" ]] && opts+=(--post-range "1-$limit")
   report="$(_gl_reddit_start gl-redditor)" || { print -u2 -r -- 'gl-redditor: cannot create temporary report directory.'; return 1; }
-  _gl_reddit_run "$out" author "$report" "${opts[@]}" "${urls[@]}" || rc=$?
+  _gl_reddit_run "$out" author "$report" "$video_rank" "${opts[@]}" "${urls[@]}" || rc=$?
   _gl_reddit_report "$report" "$rc" no
 }
 
@@ -328,22 +379,28 @@ gl-redditor() {
 gl-subreddit() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-    print -r -- 'Usage: gl-subreddit [LIMIT] [--top|--new] [--time PERIOD] [--score N] SUB [...]'
-    print -r -- 'Default: top posts from the last year, minimum score 7000.'
+    print -r -- 'Usage: gl-subreddit [LIMIT] [--top|--new] [--time PERIOD] [--score N] [-2|-3|-4] SUB [...]'
+    print -r -- 'Default: top posts from the last year, minimum score 7000, best video.'
     print -r -- '--new downloads newest posts without a score threshold.'
     print -r -- 'Examples: gl-subreddit 100 linux'
     print -r -- '          gl-subreddit 50 --new linux fedora'
-    print -r -- '          gl-subreddit 200 --top --time month --score 1000 linux'
+    print -r -- '          gl-subreddit 200 --top --time month --score 1000 -2 linux'
     return 0
   fi
-  local limit='' sort=top period=year min_score='' time_explicit=0 score_explicit=0
+  local limit='' sort=top period=year min_score='' time_explicit=0 score_explicit=0 video_rank=1
   local -a subs urls opts
+  if [[ "${1:-}" == -[234] ]]; then
+    video_rank="${1#-}"; shift
+  fi
   if _gl_integer "${1:-}"; then
     _gl_positive_integer "$1" || { _gl_error gl-subreddit 'LIMIT must be positive'; return 2; }
     limit="$1"; shift
   fi
   while (( $# )); do
     case "$1" in
+      -2|-3|-4)
+        (( video_rank == 1 )) || { _gl_error gl-subreddit 'choose only one video quality flag'; return 2; }
+        video_rank="${1#-}"; shift ;;
       --top) sort=top; shift ;;
       --new) sort=new; shift ;;
       --time|-t)
@@ -382,6 +439,6 @@ gl-subreddit() {
   [[ -n "$limit" ]] && opts+=(--post-range "1-$limit")
   [[ -n "$min_score" ]] && opts+=(--post-filter "score >= $min_score")
   report="$(_gl_reddit_start gl-subreddit)" || { print -u2 -r -- 'gl-subreddit: cannot create temporary report directory.'; return 1; }
-  _gl_reddit_run "$out" subreddit "$report" "${opts[@]}" "${urls[@]}" || rc=$?
+  _gl_reddit_run "$out" subreddit "$report" "$video_rank" "${opts[@]}" "${urls[@]}" || rc=$?
   _gl_reddit_report "$report" "$rc" no
 }
