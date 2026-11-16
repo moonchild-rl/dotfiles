@@ -155,8 +155,8 @@ _gl_reddit_run() {
     *) print -u2 -r -- "Internal error: unknown layout '$layout'"; return 2 ;;
   esac
 
-  # Keep text posts and media captions, without adding text files to media-only posts.
-  local text_processor='[{"name":"metadata","event":"post","mode":"custom","filename":"{title[:100]}_{id}_{author}.txt","skip":true,"filter":"bool(locals().get(\"is_self\")) or bool((locals().get(\"selftext\") or \"\").strip())","content-format":"{title}\n\n{selftext}\n\nhttps://www.reddit.com{permalink}\n"}]'
+  # Save text bodies, including captions on media posts; ignore link-only bodies.
+  local text_processor='[{"name":"metadata","event":"post","mode":"custom","filename":"{title[:100]}_{id}_{author}.txt","skip":true,"filter":"bool(re.search(r\"\\w\", re.sub(r\"\\[[^]]*\\]\\(https?://[^)]+\\)|https?://\\S+\", \"\", (selftext or \"\")))) and (selftext or \"\").strip().lower() not in (\"[deleted]\", \"[removed]\")","content-format":"{title}\n\n{selftext}\n\nhttps://www.reddit.com{permalink}\n"}]'
 
   local ytdl_module
   ytdl_module="$(_gl_ytdl_module)"
