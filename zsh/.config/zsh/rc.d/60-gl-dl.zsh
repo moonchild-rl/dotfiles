@@ -45,6 +45,25 @@ _gl_check_program() {
   fi
 }
 
+# gallery-dl imports yt-dlp as a Python module, not through its CLI command.
+# Find it in system Python or in the environment behind the yt-dlp executable.
+_gl_ytdl_module() {
+  emulate -L zsh
+  local module executable interpreter
+  module="$(command python3 -c 'import yt_dlp; print(yt_dlp.__path__[0])' 2>/dev/null)" || module=''
+  if [[ -z "$module" ]]; then
+    executable="$(command -v yt-dlp 2>/dev/null)" || executable=''
+    if [[ -n "$executable" ]]; then
+      executable="${executable:A}"
+      interpreter="${executable:h}/python"
+      if [[ -x "$interpreter" ]]; then
+        module="$(command "$interpreter" -c 'import yt_dlp; print(yt_dlp.__path__[0])' 2>/dev/null)" || module=''
+      fi
+    fi
+  fi
+  print -r -- "${module:-yt_dlp}"
+}
+
 # Keep each run's reports in a temporary folder, separate from downloads.
 _gl_reddit_start() {
   emulate -L zsh
@@ -139,6 +158,9 @@ _gl_reddit_run() {
   # Keep text posts and media captions, without adding text files to media-only posts.
   local text_processor='[{"name":"metadata","event":"post","mode":"custom","filename":"{title[:100]}_{id}_{author}.txt","skip":true,"filter":"bool(locals().get(\"is_self\")) or bool((locals().get(\"selftext\") or \"\").strip())","content-format":"{title}\n\n{selftext}\n\nhttps://www.reddit.com{permalink}\n"}]'
 
+  local ytdl_module
+  ytdl_module="$(_gl_ytdl_module)"
+
   command gallery-dl --config-ignore \
     -o extractor.reddit.api=rest \
     -o extractor.reddit.videos=dash \
@@ -153,7 +175,7 @@ _gl_reddit_run() {
     -o extractor.path-restrict=windows+ \
     -o 'extractor.reddit.filename={title[:100]}_{id}_{author}{num:?_//>02}.{extension}' \
     -o "extractor.reddit.postprocessors=$text_processor" \
-    -o downloader.ytdl.module=yt_dlp \
+    -o "downloader.ytdl.module=$ytdl_module" \
     --cookies-from-browser "${GL_REDDIT_BROWSER:-firefox}" \
     --sleep-request 2 \
     --write-log "$report/gallery-dl.log" \
