@@ -1,6 +1,7 @@
 # Gallery-dl shortcuts. Source this file from Zsh.
 # For saved posts, set: export GL_REDDIT_USER='YourRedditUsername'
 # Optional browser:   export GL_REDDIT_BROWSER=firefox
+# Optional smaller videos: export GL_REDDIT_VIDEO_FORMAT='bv.2+ba/bv+ba/bv.2/bv/b'
 # Run any command with --help for examples.
 
 _gl_positive_integer() {
@@ -160,6 +161,9 @@ _gl_reddit_run() {
 
   local ytdl_module
   ytdl_module="$(_gl_ytdl_module)"
+  local -a video_options
+  [[ -n "${GL_REDDIT_VIDEO_FORMAT:-}" ]] &&
+    video_options=(-o "downloader.ytdl.format=$GL_REDDIT_VIDEO_FORMAT")
 
   command gallery-dl --config-ignore \
     -o extractor.reddit.api=rest \
@@ -176,6 +180,7 @@ _gl_reddit_run() {
     -o 'extractor.reddit.filename={title[:100]}_{id}_{author}{num:?_//>02}.{extension}' \
     -o "extractor.reddit.postprocessors=$text_processor" \
     -o "downloader.ytdl.module=$ytdl_module" \
+    "${video_options[@]}" \
     --cookies-from-browser "${GL_REDDIT_BROWSER:-firefox}" \
     --sleep-request 2 \
     --write-log "$report/gallery-dl.log" \
