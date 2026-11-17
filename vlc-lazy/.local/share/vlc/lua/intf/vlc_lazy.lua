@@ -250,7 +250,7 @@ end
 local function handle(action, path, chosen_root)
     if action == 'ping' then
         if not gui_ready() then error('The VLC window is closing') end
-        return 'ready-4'
+        return 'ready-5'
     elseif action == 'open' then open(path, chosen_root)
     elseif action == 'next' then next_file()
     elseif action == 'next-folder' then next_folder()

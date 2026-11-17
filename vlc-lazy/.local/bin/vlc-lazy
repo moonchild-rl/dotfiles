@@ -85,16 +85,38 @@ def local_path(value):
     return Path(value).expanduser().resolve()
 
 
-def vlc_command():
-    # Settings are per launch. Avoid media-library loading, network metadata,
-    # preparsing and saved playlists; navigation belongs to the Lua interface.
+def preferences_path():
+    """Seed a private, GUI-editable config without importing normal VLC prefs."""
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    directory = config_home / "vlc-lazy"
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path = directory / "vlcrc"
+    try:
+        with path.open("x", encoding="utf-8") as config:
+            config.write(
+                "# VLC Lazy preferences. Changes saved in VLC's Preferences persist here.\n"
+                "avcodec-hw=any\n"
+                "audio-time-stretch=1\n"
+                "qt-dark-palette=1\n"
+                "qt-recentplay=0\n"
+                "qt-continue=0\n"
+                "qt-video-autoresize=0\n"
+                "fullscreen=0\n"
+            )
+    except FileExistsError:
+        pass
+    return path
+
+
+def vlc_command(config_path):
+    # Ordinary preferences come from the private config. These overrides keep
+    # single-instance playback, lazy navigation and fast startup consistent.
     return [
-        "vlc", "--ignore-config", "--intf=qt", "--no-one-instance",
+        "vlc", f"--config={config_path}", "--intf=qt", "--no-one-instance",
         "--no-one-instance-when-started-from-file", "--no-dbus",
         "--no-media-library", "--no-auto-preparse",
         "--no-metadata-network-access", "--no-sub-autodetect-file",
-        "--no-qt-privacy-ask",
-        "--embedded-video", "--no-qt-video-autoresize", "--no-video-title-show",
+        "--no-qt-privacy-ask", "--embedded-video", "--no-video-title-show",
         "--extraintf=luaintf", "--lua-intf=vlc_lazy",
         "--repeat", "--no-loop", "--file-caching=100",
         # Lua owns file-navigation keys, including after the playlist is empty.
@@ -146,7 +168,7 @@ def main():
         if instance and action == "open":
             # A live PID can be a deadlocked VLC after its windows were closed.
             # Ping before reusing it; the version also upgrades older scripts.
-            if request(state, instance, "ping", timeout=0.75) != ("ok", "ready-4"):
+            if request(state, instance, "ping", timeout=0.75) != ("ok", "ready-5"):
                 try:
                     stop_instance(instance)
                 except RuntimeError as error:
@@ -161,7 +183,7 @@ def main():
                 env = dict(os.environ, VLC_LAZY_STATE=str(state), VLC_LAZY_TOKEN=token)
                 try:
                     with (state / "vlc.log").open("w") as log:
-                        proc = subprocess.Popen(vlc_command(), env=env,
+                        proc = subprocess.Popen(vlc_command(preferences_path()), env=env,
                                                 stdin=subprocess.DEVNULL, stdout=log,
                                                 stderr=subprocess.STDOUT, start_new_session=True)
                 except FileNotFoundError:
