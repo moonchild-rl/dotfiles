@@ -37,7 +37,7 @@ zstyle ':omz:update' mode auto      # update automatically without asking
 # zstyle ':omz:update' mode reminder  # just remind me to update when it's time
 
 # Uncomment the following line to change how often to auto-update (in days).
-zstyle ':omz:update' frequency 13
+zstyle ':omz:update' frequency 52
 
 # Uncomment the following line if pasting URLs and other text is messed up.
 # DISABLE_MAGIC_FUNCTIONS="true"
@@ -284,10 +284,9 @@ for f in ~/.config/zsh/rc.d/*.zsh(N); do
   source "$f"
 done
 
-# Source file with private components for .zshrc on moonstation only
-if [[ "${HOST%%.*}" == "moonstation" ]] &&
-   [[ -r "$HOME/Sync/Ricing/.zshrc-private.zsh" ]] &&
-   [[ "${TERM_PROGRAM:-}" != "vscode" ]]; then
+# Source file with private components for .zshrc
+if [[ -r "$HOME/Sync/Ricing/.zshrc-private.zsh" &&
+      "${TERM_PROGRAM:-}" != "vscode" ]]; then
   source "$HOME/Sync/Ricing/.zshrc-private.zsh"
 fi
 

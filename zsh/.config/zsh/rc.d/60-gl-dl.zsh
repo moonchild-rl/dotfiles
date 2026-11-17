@@ -1,10 +1,13 @@
-# Gallery-dl shortcuts. Source this file from Zsh.
-# For saved posts, set: export GL_REDDIT_USER='YourRedditUsername'
+# Gallery-dl shortcuts.
+# Saved-post username priority: explicit argument, GL_REDDIT_USER, then through prompt.
+# Set a usual GL_REDDIT_USER in ~/Sync/Ricing/.zshrc-private.zsh if that file is sourced.
 # Optional browser:   export GL_REDDIT_BROWSER=firefox
 # Reddit video quality: gldl defaults to the 2nd-best video; use -1 for best.
 # gl-saved, gl-redditor, and gl-subreddit default to best. Use -2, -3, or -4
 # with any command to request that ranked video stream (plus audio, if present).
 # Ranks are per post, so a given flag does not guarantee a fixed size or resolution.
+# Repeated Reddit runs skip files already present at the same path; check the
+# temporary report path printed after each run for errors or missing posts.
 # Run any command with --help for examples.
 
 _gl_positive_integer() {
@@ -212,6 +215,7 @@ gldl() {
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
     print -r -- 'Usage: gldl [-1|-2|-3|-4] URL|REDDIT_POST_ID [URL ...]'
     print -r -- 'Reddit videos default to the 2nd-best video. -1 selects best; -3/-4 select lower ranks.'
+    print -r -- 'The displayed video rank is a preference; a missing rank falls back to a better one.'
     print -r -- 'Download to the current directory. Reddit links use browser cookies.'
     print -r -- 'Examples: gldl abc123    gldl -1 abc123    gldl -4 "https://www.reddit.com/r/linux/comments/abc123/"'
     return 0
@@ -252,6 +256,14 @@ gldl() {
     _gl_check_program gldl reddit || return $?
     local report
     report="$(_gl_reddit_start gldl)" || { print -u2 -r -- 'gldl: cannot create temporary report directory.'; return 1; }
+    local video_label
+    case "$video_rank" in
+      1) video_label='best' ;;
+      2) video_label='2nd-best' ;;
+      3) video_label='3rd-best' ;;
+      4) video_label='4th-best' ;;
+    esac
+    print -r -- "gldl: Reddit video preference: $video_label (rank $video_rank; falls back if unavailable)."
     _gl_reddit_run "$PWD" flat "$report" "$video_rank" "${reddit[@]}" || rc=$?
     _gl_reddit_report "$report" "$rc" no || err=1
   elif [[ -n "$video_flag" ]]; then
@@ -275,7 +287,8 @@ gl-saved() {
     print -r -- 'Usage: gl-saved [LIMIT] [REDDIT_USERNAME] [-2|-3|-4]'
     print -r -- 'Download newest saved entries, grouped by subreddit. Best video is the default.'
     print -r -- 'Examples: gl-saved 20    gl-saved 50 MyUsername -2'
-    print -r -- 'Set GL_REDDIT_USER to avoid typing your username.'
+    print -r -- 'Username: argument overrides GL_REDDIT_USER; if neither is set, prompt asks in a terminal.'
+    print -r -- 'Set a usual GL_REDDIT_USER in ~/Sync/Ricing/.zshrc-private.zsh if that file is sourced.'
     print -r -- 'Error reports are stored temporarily under /tmp (or $TMPDIR).'
     return 0
   fi
@@ -299,11 +312,15 @@ gl-saved() {
   fi
   (( $# <= 1 )) || { _gl_error gl-saved 'too many arguments'; return 2; }
   (( $# == 1 )) && username="${1#u/}"
-  [[ -n "$username" ]] || {
-    print -u2 -r -- "gl-saved: Reddit username is missing. Set: export GL_REDDIT_USER='YourRedditUsername'"
-    print -u2 -r -- 'Or run: gl-saved 20 YourRedditUsername'
-    return 2
-  }
+  if [[ -z "$username" ]]; then
+    if [[ -t 0 ]]; then
+      read -r "username?gl-saved: Reddit username: " || return 2
+    fi
+    [[ -n "$username" ]] || {
+      _gl_error gl-saved 'Reddit username is missing; pass it, set GL_REDDIT_USER, or run interactively'
+      return 2
+    }
+  fi
   [[ "$username" != *[^[:alnum:]_-]* ]] || { _gl_error gl-saved 'invalid Reddit username'; return 2; }
   _gl_check_program gl-saved reddit || return $?
 
