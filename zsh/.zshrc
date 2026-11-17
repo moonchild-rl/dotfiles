@@ -285,8 +285,8 @@ for f in ~/.config/zsh/rc.d/*.zsh(N); do
 done
 
 # Source file with private components for .zshrc
-if [[ -r "$HOME/Sync/Ricing/.zshrc-private.zsh" &&
-      "${TERM_PROGRAM:-}" != "vscode" ]]; then
+if [[ -r "$HOME/Sync/Ricing/.zshrc-private.zsh" ]] &&
+   [[ "${TERM_PROGRAM:-}" != "vscode" ]]; then
   source "$HOME/Sync/Ricing/.zshrc-private.zsh"
 fi
 
