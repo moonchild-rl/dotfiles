@@ -2,7 +2,7 @@
 Type=Application
 Name=VLC Lazy
 Comment=Single-instance VLC with lazy folder navigation
-Exec=vlc-lazy %f
+Exec=/home/moon/.local/bin/vlc-lazy %f
 TryExec=vlc
 Icon=vlc
 Terminal=false
