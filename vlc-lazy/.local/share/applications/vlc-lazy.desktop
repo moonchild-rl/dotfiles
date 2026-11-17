@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=VLC Lazy
+Comment=Single-instance VLC with lazy folder navigation
+Exec=vlc-lazy %f
+TryExec=vlc
+Icon=vlc
+Terminal=false
+Categories=AudioVideo;Player;
+MimeType=video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/mpeg;video/x-flv;image/gif;audio/mpeg;audio/flac;audio/ogg;audio/x-wav;
+StartupNotify=false
