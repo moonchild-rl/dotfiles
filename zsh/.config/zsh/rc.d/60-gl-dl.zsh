@@ -280,7 +280,7 @@ gldl() {
   return "$err"
 }
 
-# Download recent saved posts into ~/GLDL/reddit_posts_saved_new/{subreddit}/.
+# Download recent saved posts into ~/Downloads/GLDL/reddit_posts_saved_new/{subreddit}/.
 gl-saved() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
@@ -324,7 +324,7 @@ gl-saved() {
   [[ "$username" != *[^[:alnum:]_-]* ]] || { _gl_error gl-saved 'invalid Reddit username'; return 2; }
   _gl_check_program gl-saved reddit || return $?
 
-  local out="$HOME/GLDL/reddit_posts_saved_new" report rc=0
+  local out="$HOME/Downloads/GLDL/reddit_posts_saved_new" report rc=0
   local -a opts
   [[ -n "$limit" ]] && opts+=(--post-range "1-$limit")
   report="$(_gl_reddit_start gl-saved)" || { print -u2 -r -- 'gl-saved: cannot create temporary report directory.'; return 1; }
@@ -333,7 +333,7 @@ gl-saved() {
   _gl_reddit_report "$report" "$rc" yes
 }
 
-# Download submissions by one or more Reddit users into ~/GLDL/redditors/.
+# Download submissions into ~/Downloads/GLDL/redditors/{author}/.
 gl-redditor() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
@@ -376,7 +376,7 @@ gl-redditor() {
   esac
   [[ "$sort" == top || "$period" == all ]] || { _gl_error gl-redditor '--time requires --top'; return 2; }
 
-  local user out="$HOME/GLDL/redditors" report rc=0
+  local user out="$HOME/Downloads/GLDL/redditors" report rc=0
   for user in "${users[@]}"; do
     [[ -n "$user" && "$user" != *[^[:alnum:]_-]* ]] || { _gl_error gl-redditor "invalid username: $user"; return 2; }
     if [[ "$sort" == top ]]; then
@@ -392,7 +392,7 @@ gl-redditor() {
   _gl_reddit_report "$report" "$rc" no
 }
 
-# Download subreddit posts into ~/GLDL/subreddits/{subreddit}/.
+# Download subreddit posts into ~/Downloads/GLDL/subreddits/{subreddit}/.
 gl-subreddit() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
@@ -443,7 +443,7 @@ gl-subreddit() {
     min_score=7000
   fi
 
-  local sub out="$HOME/GLDL/subreddits" report rc=0
+  local sub out="$HOME/Downloads/GLDL/subreddits" report rc=0
   for sub in "${subs[@]}"; do
     [[ -n "$sub" && "$sub" != *[^[:alnum:]_+]* ]] || { _gl_error gl-subreddit "invalid subreddit: $sub"; return 2; }
     if [[ "$sort" == top ]]; then
