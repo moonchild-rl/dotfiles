@@ -16,8 +16,21 @@ local root, current_file
 local file_cache, dir_cache = {}, {}
 local scans = 0
 local next_uri = 'vlc://pause:86400'
-local next_id, observed_id
+local previous_uri = 'vlc://pause:86401'
+local next_id, previous_id
 local libvlc = vlc.object.libvlc()
+local playlist_object = vlc.object.playlist()
+-- Command-line options are inherited object variables. config.get() reads
+-- saved/default settings and can be empty even when --intf=qt was supplied.
+local qt_interface = vlc.var.inherit(nil, 'intf') == 'qt'
+
+local function gui_ready()
+    -- Qt publishes this playlist variable after creating its main window and
+    -- embedding provider. Extra interfaces start before Qt; playing sooner
+    -- makes VLC fall back to a separate video window.
+    return not qt_interface or
+           vlc.var.get(playlist_object, 'window') == 'qt,any'
+end
 
 local function parent(path)
     local dir = path:match('^(.*)/[^/]+$')
@@ -88,6 +101,17 @@ local function first_in_tree(dir, depth)
     end
 end
 
+local function last_in_tree(dir, depth)
+    if depth > 64 then return nil end
+    local dirs = entries(dir, false)
+    for i = #dirs, 1, -1 do
+        local found = last_in_tree(dirs[i].path, depth + 1)
+        if found then return found end
+    end
+    local files = entries(dir, true)
+    if #files > 0 then return files[#files].path end
+end
+
 local function first_descendant(dir)
     for _, child in ipairs(entries(dir, false)) do
         local found = first_in_tree(child.path, 1)
@@ -111,34 +135,80 @@ local function after_tree(dir)
     end
 end
 
+local function before_tree(dir)
+    while dir ~= root do
+        local ancestor = parent(dir)
+        if not ancestor or ancestor == dir then return nil end
+        local siblings = entries(ancestor, false)
+        for i = #siblings, 1, -1 do
+            if siblings[i].path == dir then
+                for j = i - 1, 1, -1 do
+                    local found = last_in_tree(siblings[j].path, 1)
+                    if found then return found end
+                end
+                break
+            end
+        end
+        local files = entries(ancestor, true)
+        if #files > 0 then return files[#files].path end
+        dir = ancestor
+    end
+end
+
 local function play(path)
     if not path then
-        next_id = nil
-        vlc.playlist.stop()
+        next_id, previous_id = nil, nil
+        -- Stop and remove the navigation items. Leaving a repeated pause item
+        -- here lets native Next wrap to the last real file or load forever.
+        vlc.playlist.clear()
         message('No more media')
         return
     end
     current_file = path
     local current_uri = vlc.strings.make_uri(path)
-    next_id = nil
-    observed_id = nil
+    next_id, previous_id = nil, nil
     local options = {}
     -- VLC 3 otherwise treats animated GIFs as still images on older builds.
     if path:lower():match('%.gif$') then options = {'demux=avformat'} end
     vlc.playlist.repeat_('on')
     vlc.playlist.loop('off')
     vlc.playlist.clear()
-    vlc.playlist.add({{path = current_uri, options = options}})
-    -- This small navigation item keeps VLC's real Next button enabled without
-    -- enumerating a folder. Repeat-current prevents EOF from advancing to it.
-    vlc.playlist.enqueue({{path = next_uri, name = 'Next media (vlc-lazy)'}})
-    -- Match the new marker's unique ID, not just its URI. The old marker can
-    -- still be current while VLC asynchronously opens the replacement file.
-    -- This also recognizes a rapid second Next before that file starts.
+    -- Navigation items keep VLC's toolbar buttons usable without scanning
+    -- folders. Queue everything without autoplay, then select the real media.
+    vlc.playlist.enqueue({
+        {path = previous_uri, name = 'Previous media (vlc-lazy)'},
+        {path = current_uri, options = options},
+        {path = next_uri, name = 'Next media (vlc-lazy)'}
+    })
+    local media_id
     local playlist = vlc.playlist.get('playlist', false)
     for _, item in ipairs(playlist.children or {}) do
         if item.path == next_uri then next_id = item.id end
+        if item.path == previous_uri then previous_id = item.id end
+        if item.path == current_uri then media_id = item.id end
     end
+    assert(media_id, 'Unable to queue media: ' .. path)
+    vlc.playlist.gotoitem(media_id)
+end
+
+local function previous_file()
+    if not current_file then return end
+    local dir = parent(current_file)
+    local files = entries(dir, true)
+    for i, entry in ipairs(files) do
+        if entry.path == current_file then
+            if i > 1 then return play(files[i - 1].path) end
+            break
+        end
+    end
+    local path = before_tree(dir)
+    if path then return play(path) end
+    -- A toolbar click has already entered the previous navigation item.
+    -- Restore the first file; a Left key at the beginning simply leaves it.
+    if previous_id and vlc.playlist.current() == previous_id then
+        play(current_file)
+    end
+    message('No previous media')
 end
 
 local function next_file()
@@ -178,7 +248,10 @@ local function open(path, chosen_root)
 end
 
 local function handle(action, path, chosen_root)
-    if action == 'open' then open(path, chosen_root)
+    if action == 'ping' then
+        if not gui_ready() then error('The VLC window is closing') end
+        return 'ready-4'
+    elseif action == 'open' then open(path, chosen_root)
     elseif action == 'next' then next_file()
     elseif action == 'next-folder' then next_folder()
     elseif action == 'status' then
@@ -207,23 +280,35 @@ local function request()
     write_reply(id, ok, tostring(result))
 end
 
--- VLC 3's Lua API has no key callback. Sample its key variable every 10 ms,
--- resetting consumed keys so repeated Ctrl+Right presses are recognized.
-local ctrl_right = 0x04000000 + 0x00220000
-local ctrl_n = 0x04000000 + string.byte('n')
+-- Handle arrow keys directly so file navigation also works when the native
+-- playlist is empty at the end. Shift+arrows remain VLC's seek shortcuts.
+-- VLC 3 has no Lua key callback; reset consumed keys to recognize repeats.
+local key_handlers = {
+    [0x00220000] = next_file,
+    [0x00210000] = previous_file,
+    [string.byte('n')] = next_file,
+    [string.byte('p')] = previous_file,
+    [0x04000000 + 0x00220000] = next_folder,
+    [0x04000000 + string.byte('n')] = next_folder
+}
+while not gui_ready() do
+    vlc.misc.mwait(vlc.misc.mdate() + 10000)
+end
 while true do
     request()
     local key = vlc.var.get(libvlc, 'key-pressed')
-    if key == ctrl_right or key == ctrl_n then
+    local handler = key_handlers[key]
+    if handler then
         vlc.var.set(libvlc, 'key-pressed', 0)
-        next_folder()
+        handler()
     end
+    -- Match the current playlist's unique marker IDs. Check every tick:
+    -- VLC can still report a stale current ID while replacement is queued.
     local id = vlc.playlist.current()
-    if id ~= observed_id then
-        observed_id = id
-        if id == next_id then
-            next_file()
-        end
+    if next_id and id == next_id then
+        next_file()
+    elseif previous_id and id == previous_id then
+        previous_file()
     end
     vlc.misc.mwait(vlc.misc.mdate() + 10000)
 end

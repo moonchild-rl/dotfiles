@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -38,6 +39,43 @@ def running(state):
     return None
 
 
+def stop_instance(instance):
+    """Stop only the recorded process, including VLC stuck during shutdown."""
+    for sig, timeout in ((signal.SIGTERM, 1.0), (signal.SIGKILL, 1.0)):
+        if process_stamp(instance["pid"]) != instance["stamp"]:
+            return
+        try:
+            os.kill(instance["pid"], sig)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if process_stamp(instance["pid"]) != instance["stamp"]:
+                return
+            time.sleep(0.01)
+    raise RuntimeError("The previous VLC Lazy process could not be stopped")
+
+
+def request(state, instance, action, target="", root="", timeout=5):
+    request_id = uuid.uuid4().hex
+    token = instance["token"]
+    payload = "\n".join((token, request_id, action,
+                         quote(str(target), safe="/"), quote(str(root), safe="/"))) + "\n"
+    atomic_write(state / "request", payload)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            reply = (state / "reply").read_text().split("\n", 3)
+            if len(reply) == 4 and reply[:2] == [token, request_id]:
+                return reply[2], unquote(reply[3].rstrip("\n"))
+        except OSError:
+            pass
+        if process_stamp(instance["pid"]) != instance["stamp"]:
+            break
+        time.sleep(0.01)
+    return None
+
+
 def local_path(value):
     if value.startswith("file:"):
         uri = urlsplit(value)
@@ -56,10 +94,12 @@ def vlc_command():
         "--no-media-library", "--no-auto-preparse",
         "--no-metadata-network-access", "--no-sub-autodetect-file",
         "--no-qt-privacy-ask",
-        "--no-qt-video-autoresize", "--no-video-title-show",
+        "--embedded-video", "--no-qt-video-autoresize", "--no-video-title-show",
         "--extraintf=luaintf", "--lua-intf=vlc_lazy",
         "--repeat", "--no-loop", "--file-caching=100",
-        "--key-next=Right\tn", "--key-nav-right=",
+        # Lua owns file-navigation keys, including after the playlist is empty.
+        "--key-next=", "--key-prev=", "--key-nav-left=", "--key-nav-right=",
+        "--key-jump-extrashort=Shift+Left", "--key-jump+extrashort=Shift+Right",
         "--key-jump+medium=", "--extrashort-jump-size=5",
     ]
 
@@ -103,47 +143,52 @@ def main():
         instance = running(state)
         if not instance and action != "open":
             parser.error("No vlc-lazy instance is running")
-        request_id = uuid.uuid4().hex
-        token = instance["token"] if instance else uuid.uuid4().hex
-        payload = "\n".join((token, request_id, action, quote(str(target), safe="/"), quote(str(root), safe="/"))) + "\n"
-        atomic_write(state / "request", payload)
-        proc = None
-        if not instance:
-            env = dict(os.environ, VLC_LAZY_STATE=str(state), VLC_LAZY_TOKEN=token)
-            try:
-                with (state / "vlc.log").open("w") as log:
-                    proc = subprocess.Popen(vlc_command(), env=env,
-                                            stdin=subprocess.DEVNULL, stdout=log,
-                                            stderr=subprocess.STDOUT, start_new_session=True)
-            except FileNotFoundError:
-                parser.error("VLC is not installed")
-            instance = {"pid": proc.pid, "stamp": process_stamp(proc.pid), "token": token}
-            atomic_write(state / "instance.json", json.dumps(instance))
+        if instance and action == "open":
+            # A live PID can be a deadlocked VLC after its windows were closed.
+            # Ping before reusing it; the version also upgrades older scripts.
+            if request(state, instance, "ping", timeout=0.75) != ("ok", "ready-4"):
+                try:
+                    stop_instance(instance)
+                except RuntimeError as error:
+                    parser.error(str(error))
+                instance = None
 
-        # Acknowledgement means the Lua handlers loaded and accepted the file.
-        deadline = time.monotonic() + (10 if proc else 5)
-        while time.monotonic() < deadline:
-            try:
-                reply = (state / "reply").read_text().split("\n", 3)
-                if reply[:2] == [token, request_id]:
-                    if reply[2] != "ok":
-                        parser.error(unquote(reply[3].rstrip("\n")))
-                    if action == "status":
-                        print(unquote(reply[3].rstrip("\n")))
-                    return 0
-            except OSError:
-                pass
-            if process_stamp(instance["pid"]) != instance["stamp"]:
+        # Retry once with a fresh instance if shutdown races an open request.
+        for _ in range(2):
+            proc = None
+            if not instance:
+                token = uuid.uuid4().hex
+                env = dict(os.environ, VLC_LAZY_STATE=str(state), VLC_LAZY_TOKEN=token)
+                try:
+                    with (state / "vlc.log").open("w") as log:
+                        proc = subprocess.Popen(vlc_command(), env=env,
+                                                stdin=subprocess.DEVNULL, stdout=log,
+                                                stderr=subprocess.STDOUT, start_new_session=True)
+                except FileNotFoundError:
+                    parser.error("VLC is not installed")
+                instance = {"pid": proc.pid, "stamp": process_stamp(proc.pid), "token": token}
+                atomic_write(state / "instance.json", json.dumps(instance))
+
+            # The Lua interface waits for Qt's embedded-window provider before
+            # consuming this request, rather than playing during GUI startup.
+            reply = request(state, instance, action, target, root, timeout=10 if proc else 5)
+            if reply:
+                status, result = reply
+                if status != "ok":
+                    parser.error(result)
+                if action == "status":
+                    print(result)
+                return 0
+            if action != "open":
                 break
-            time.sleep(0.01)
-        # A failed startup must not leave an unmanaged VLC window/process.
-        if proc and proc.poll() is None:
-            proc.terminate()
             try:
-                proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                proc.kill()
+                stop_instance(instance)
+            except RuntimeError as error:
+                parser.error(str(error))
+            if proc:
                 proc.wait()
+                break  # Do not repeatedly retry a broken cold startup.
+            instance = None
         log = state / "vlc.log"
         try:
             tail = "\n".join(log.read_text(errors="replace").splitlines()[-12:])
