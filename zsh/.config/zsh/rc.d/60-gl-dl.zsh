@@ -1,5 +1,5 @@
 # Gallery-dl shortcuts.
-# Saved-post username priority: explicit argument, GL_REDDIT_USER, then through prompt.
+# Saved-post username: GL_REDDIT_USER from shell/private config, then a prompt.
 # Set a usual GL_REDDIT_USER in ~/Sync/Ricing/.zshrc-private.zsh if that file is sourced.
 # Optional browser:   export GL_REDDIT_BROWSER=firefox
 # Reddit video quality: gldl defaults to the 2nd-best video; use -1 for best.
@@ -8,6 +8,13 @@
 # Ranks are per post, so a given flag does not guarantee a fixed size or resolution.
 # Repeated Reddit runs skip files already present at the same path; check the
 # temporary report path printed after each run for errors or missing posts.
+# gl-redditor / gl-subreddit also compare SHA-256 hashes of complete posts within
+# each output folder. [abc] and [abc, def] both stay; identical collections keep
+# the oldest Reddit timestamp among posts examined in this run. Older downloads
+# outside the selected limits/filters are not compared. Reposts may transfer
+# again on reruns before hashing. Text sidecars are left intact.
+# Working metadata stays in the existing temporary report directory.
+# Different encodings/resolutions have different bytes and are kept separately.
 # Run any command with --help for examples.
 
 _gl_positive_integer() {
@@ -90,6 +97,12 @@ _gl_reddit_report() {
   local log="$report/gallery-dl.log"
   local problem=0 auth_hint=0
 
+  if [[ -s "$report/unsupported-urls.txt" ]]; then
+    problem=1
+    print -u2 -r -- "Unsupported media (not backed up): $report/unsupported-urls.txt"
+    head -n 25 -- "$report/unsupported-urls.txt" >&2
+  fi
+
   if [[ -s "$failed" ]]; then
     problem=1
     print -u2 -r -- "Failed media / posts (full list: $failed):"
@@ -122,7 +135,7 @@ _gl_reddit_report() {
 
   if (( rc != 0 )); then
     problem=1
-    print -u2 -r -- "gallery-dl exited with status $rc. See $log"
+    print -u2 -r -- "The download run failed with status $rc. See $log"
     if [[ "$saved" == yes ]] && (( ! auth_hint )); then
       print -u2 -r -- "Saved posts require a Reddit login. Check cookies in ${GL_REDDIT_BROWSER:-firefox}."
     fi
@@ -149,12 +162,148 @@ _gl_reddit_report() {
   print -r -- "Reports: $report (temporary; may be cleared by the OS)"
 }
 
+# Run gallery-dl and deduplicate complete media collections after a clean run.
+# Keep this here rather than installing a separate helper. Metadata hooks also
+# cover external hosts. Lock the directory itself, without creating a lock file.
+_gl_reddit_backup() {
+  emulate -L zsh
+  command -v python3 >/dev/null 2>&1 || { print -u2 -r -- 'Reddit media deduplication requires python3.'; return 127; }
+  command python3 - "$@" <<'PY'
+import collections, fcntl, hashlib, json, math, os, pathlib, re, stat, subprocess, sys
+
+def backup():
+    out, report = sys.argv[1:3]
+    root = pathlib.Path(out).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    report = pathlib.Path(report)
+    lock = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        cache = {}
+        def describe(relative, fresh=False):
+            path = pathlib.Path(relative)
+            if path.is_absolute() or '..' in path.parts:
+                raise ValueError('media path outside backup directory')
+            path = root / path
+            if any(p.is_symlink() for p in (path, *path.parents) if p != root and root in p.parents):
+                raise ValueError('refusing symlinked media paths')
+            info = path.stat()
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError('media path is not a regular file')
+            stamp = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+            if fresh or relative not in cache or cache[relative][0] != stamp:
+                digest = hashlib.sha256()
+                with path.open('rb') as stream:
+                    for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                        digest.update(chunk)
+                after = path.stat()
+                if (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) != stamp or not info.st_size:
+                    raise ValueError('empty or changing media file; cleanup stopped')
+                cache[relative] = (stamp, {'path': relative, 'size': info.st_size, 'sha256': digest.hexdigest()})
+            return cache[relative][1]
+        def valid(files, fresh=False):
+            try:
+                return bool(files) and all(describe(f['path'], fresh) == f for f in files)
+            except (OSError, ValueError):
+                return False
+        source = "[m.get(k) for m in [(locals().get('crosspost_parent_list') or [locals()])[-1]] for k in ('url', 'gallery_data')]"
+        fields = {'gl_id': '{id}', 'gl_created': '{created_utc}',
+                  'gl_folder': '{_path.realdirectory}', 'gl_source': '\fE ' + source}
+        inherited = {key: '{_parent[' + key + ']}' for key in fields}
+        hooks = [
+            {'name': 'metadata', 'event': 'post', 'mode': 'modify', 'fields': fields, 'filter': "category == 'reddit'"},
+            {'name': 'metadata', 'event': 'post,prepare,child', 'mode': 'modify', 'fields': inherited,
+             'filter': "category != 'reddit' and bool(locals().get('_parent'))"},
+            {'name': 'metadata', 'event': 'after,skip', 'mode': 'jsonl',
+             'directory': str(report), 'filename': 'media.jsonl',
+             'include': ['gl_id', 'gl_created', 'gl_folder', 'gl_source', '_path']},
+        ]
+        command = sys.argv[3:]
+        command += ['-o', 'extractor.postprocessors=' + json.dumps(hooks),
+                    '-o', 'extractor.parent-metadata=_parent', '--destination', str(root),
+                    '--write-unsupported', str(report / 'unsupported-urls.txt')]
+        result = subprocess.run(command)
+        log = (report / 'gallery-dl.log').read_text(errors='replace')
+        problems = any((report / name).exists() and (report / name).stat().st_size
+                       for name in ('failed-posts.txt', 'failed-input-urls.txt', 'unsupported-urls.txt'))
+        if result.returncode or problems or re.search(r'\[(?:error|warning)\]', log, re.I):
+            print('Media cleanup skipped: downloads reported problems; all files retained.', file=sys.stderr)
+            return result.returncode if result.returncode > 0 else 1
+        media = report / 'media.jsonl'
+        posts = {}
+        for line in media.read_text().splitlines() if media.exists() else ():
+            row = json.loads(line)
+            key = (str(pathlib.Path(row['gl_folder']).relative_to(root)), row['gl_id'])
+            post = posts.setdefault(key, {'folder': key[0], 'id': key[1],
+                'created': float(row['gl_created']), 'source': row['gl_source'], 'files': {}})
+            relative = str(pathlib.Path(row['_path']).relative_to(root))
+            post['files'][relative] = describe(relative)
+        for post in posts.values():
+            # Compare against the declared gallery size, including unavailable
+            # items. Never mistake a partially downloaded gallery for a single.
+            src = post['source']
+            gallery = src[1]
+            expected = len(gallery['items']) if isinstance(gallery, dict) else None
+            if (expected is not None and expected != len(post['files'])) or (not gallery and '/gallery/' in (src[0] or '')):
+                raise ValueError('incomplete gallery; all downloaded files retained')
+            if not math.isfinite(post['created']):
+                raise ValueError('invalid Reddit timestamp')
+            post['files'] = list(post['files'].values())
+        groups = collections.defaultdict(list)
+        for post in posts.values():
+            signature = (post['folder'], tuple(sorted((f['size'], f['sha256']) for f in post['files'])))
+            groups[signature].append(post)
+        pending = {}
+        retained = set()
+        for group in groups.values():
+            group.sort(key=lambda p: (p['created'], p['id']))
+            winner = group[0]
+            retained.update(file['path'] for file in winner['files'])
+            for post in group[1:]:
+                for file in post['files']:
+                    pending[file['path']] = {'file': file, 'kept': winner['files']}
+        pending = {path: item for path, item in pending.items() if path not in retained}
+        # Hashes and the removal plan live only in memory. An interruption can
+        # leave extra copies; the oldest complete collection stays untouched.
+        removed = 0
+        for path, item in list(pending.items()):
+            if not (root / path).exists():
+                continue
+            if not valid(item['kept'], fresh=True) or describe(path, fresh=True) != item['file']:
+                raise ValueError('retained media changed; duplicate cleanup stopped')
+            (root / path).unlink()
+            removed += 1
+        print(f'Media check: removed {removed} duplicate file(s); complete galleries retained.')
+        return 0
+    finally:
+        os.close(lock)
+
+try:
+    sys.exit(backup())
+except (OSError, ValueError, KeyError, TypeError) as exc:
+    print(f'Reddit media check failed: {exc}', file=sys.stderr)
+    try:
+        with (pathlib.Path(sys.argv[2]) / 'gallery-dl.log').open('a') as stream:
+            stream.write(f'\n[error] Reddit media check failed: {exc}\n')
+    except OSError:
+        pass
+    sys.exit(1)
+except KeyboardInterrupt:
+    sys.exit(130)
+PY
+}
+
 # Internal Reddit downloader. OUT is a folder; LAYOUT is flat, subreddit, or author.
 # VIDEO_RANK is 1 (best, gallery-dl default) or 2-4 (yt-dlp-ranked video-only stream).
 _gl_reddit_run() {
   emulate -L zsh
   local out="$1" layout="$2" report="$3" video_rank="$4"
   shift 4
+  local deduplicate=no
+  if [[ "${1:-}" == --deduplicate ]]; then
+    deduplicate=yes
+    shift
+  fi
   case "$video_rank" in
     1|2|3|4) ;;
     *) print -u2 -r -- "Internal error: unknown video rank '$video_rank'"; return 2 ;;
@@ -185,7 +334,8 @@ _gl_reddit_run() {
     video_options=(-o "downloader.ytdl.format=${(j:/:)formats}")
   fi
 
-  command gallery-dl --config-ignore \
+  local -a download
+  download=(gallery-dl --config-ignore \
     -o extractor.reddit.api=rest \
     -o extractor.reddit.videos=dash \
     -o extractor.reddit.comments=0 \
@@ -206,7 +356,12 @@ _gl_reddit_run() {
     --write-log "$report/gallery-dl.log" \
     --Print-to-file 'error:{title} | https://www.reddit.com{permalink}' "$report/failed-posts.txt" \
     --error-file "$report/failed-input-urls.txt" \
-    "${destination[@]}" "$@"
+    "${destination[@]}" "$@")
+  if [[ "$deduplicate" == yes ]]; then
+    _gl_reddit_backup "$out" "$report" "${download[@]}"
+  else
+    command "${download[@]}"
+  fi
 }
 
 # Download any supported link into the current directory, like burl for Reddit.
@@ -284,10 +439,10 @@ gldl() {
 gl-saved() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-    print -r -- 'Usage: gl-saved [LIMIT] [REDDIT_USERNAME] [-2|-3|-4]'
+    print -r -- 'Usage: gl-saved [LIMIT] [-2|-3|-4]'
     print -r -- 'Download newest saved entries, grouped by subreddit. Best video is the default.'
-    print -r -- 'Examples: gl-saved 20    gl-saved 50 MyUsername -2'
-    print -r -- 'Username: argument overrides GL_REDDIT_USER; if neither is set, prompt asks in a terminal.'
+    print -r -- 'Examples: gl-saved 20    gl-saved 50 -2'
+    print -r -- 'Username: GL_REDDIT_USER, otherwise a prompt in a terminal. No username argument.'
     print -r -- 'Set a usual GL_REDDIT_USER in ~/Sync/Ricing/.zshrc-private.zsh if that file is sourced.'
     print -r -- 'Error reports are stored temporarily under /tmp (or $TMPDIR).'
     return 0
@@ -310,14 +465,13 @@ gl-saved() {
     _gl_positive_integer "$1" || { _gl_error gl-saved 'LIMIT must be positive'; return 2; }
     limit="$1"; shift
   fi
-  (( $# <= 1 )) || { _gl_error gl-saved 'too many arguments'; return 2; }
-  (( $# == 1 )) && username="${1#u/}"
+  (( $# == 0 )) || { _gl_error gl-saved 'only LIMIT and video flags are accepted; set GL_REDDIT_USER for your account'; return 2; }
   if [[ -z "$username" ]]; then
     if [[ -t 0 ]]; then
       read -r "username?gl-saved: Reddit username: " || return 2
     fi
     [[ -n "$username" ]] || {
-      _gl_error gl-saved 'Reddit username is missing; pass it, set GL_REDDIT_USER, or run interactively'
+      _gl_error gl-saved 'Reddit username is missing; set GL_REDDIT_USER or run interactively'
       return 2
     }
   fi
@@ -342,6 +496,8 @@ gl-redditor() {
     print -r -- 'PERIOD: all, year, month, week, day, hour (with --top).'
     print -r -- 'Examples: gl-redditor 100 SomeUser'
     print -r -- '          gl-redditor 200 --top --time month -2 User1 User2'
+    print -r -- 'Identical media collections in the same folder keep the oldest post examined this run; galleries stay complete.'
+    print -r -- 'LIMIT applies per USER before deduplication. USER is an account to back up, not your login.'
     return 0
   fi
   local limit='' sort=new period=all video_rank=1
@@ -388,7 +544,7 @@ gl-redditor() {
   _gl_check_program gl-redditor reddit || return $?
   [[ -n "$limit" ]] && opts+=(--post-range "1-$limit")
   report="$(_gl_reddit_start gl-redditor)" || { print -u2 -r -- 'gl-redditor: cannot create temporary report directory.'; return 1; }
-  _gl_reddit_run "$out" author "$report" "$video_rank" "${opts[@]}" "${urls[@]}" || rc=$?
+  _gl_reddit_run "$out" author "$report" "$video_rank" --deduplicate "${opts[@]}" "${urls[@]}" || rc=$?
   _gl_reddit_report "$report" "$rc" no
 }
 
@@ -402,6 +558,8 @@ gl-subreddit() {
     print -r -- 'Examples: gl-subreddit 100 linux'
     print -r -- '          gl-subreddit 50 --new linux fedora'
     print -r -- '          gl-subreddit 200 --top --time month --score 1000 -2 linux'
+    print -r -- 'Identical media collections in the same folder keep the oldest post examined this run; galleries stay complete.'
+    print -r -- 'LIMIT applies per SUB before deduplication.'
     return 0
   fi
   local limit='' sort=top period=year min_score='' time_explicit=0 score_explicit=0 video_rank=1
@@ -456,6 +614,6 @@ gl-subreddit() {
   [[ -n "$limit" ]] && opts+=(--post-range "1-$limit")
   [[ -n "$min_score" ]] && opts+=(--post-filter "score >= $min_score")
   report="$(_gl_reddit_start gl-subreddit)" || { print -u2 -r -- 'gl-subreddit: cannot create temporary report directory.'; return 1; }
-  _gl_reddit_run "$out" subreddit "$report" "$video_rank" "${opts[@]}" "${urls[@]}" || rc=$?
+  _gl_reddit_run "$out" subreddit "$report" "$video_rank" --deduplicate "${opts[@]}" "${urls[@]}" || rc=$?
   _gl_reddit_report "$report" "$rc" no
 }
