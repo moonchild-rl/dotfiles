@@ -1,21 +1,20 @@
-# Gallery-dl shortcuts.
-# Saved-post username: GL_REDDIT_USER from shell/private config, then a prompt.
-# Set a usual GL_REDDIT_USER in ~/Sync/Ricing/.zshrc-private.zsh if that file is sourced.
-# Optional browser:   export GL_REDDIT_BROWSER=firefox
-# Reddit video quality: gldl defaults to the 2nd-best video; use -1 for best.
-# gl-saved, gl-redditor, and gl-subreddit default to best. Use -2, -3, or -4
-# with any command to request that ranked video stream (plus audio, if present).
-# Ranks are per post, so a given flag does not guarantee a fixed size or resolution.
-# Repeated Reddit runs skip files already present at the same path; check the
-# temporary report path printed after each run for errors or missing posts.
-# gl-redditor / gl-subreddit also compare SHA-256 hashes of complete posts within
-# each output folder. [abc] and [abc, def] both stay; identical collections keep
-# the oldest Reddit timestamp among posts examined in this run. Older downloads
-# outside the selected limits/filters are not compared. Reposts may transfer
-# again on reruns before hashing. Text sidecars are left intact.
-# Working metadata stays in the existing temporary report directory.
-# Different encodings/resolutions have different bytes and are kept separately.
-# Run any command with --help for examples.
+# gldl URL|POST_ID [...]       Download links into the current folder.
+# gl-saved [LIMIT]            Download your newest saved Reddit posts.
+#   Output: ~/Downloads/GLDL/reddit_posts_saved_new/{subreddit}/
+# gl-redditor [LIMIT] USER [...]   Download users' submissions, newest first.
+#   Output: ~/Downloads/GLDL/redditors/{author}/
+# gl-subreddit [LIMIT] SUB [...]   Download top posts from the last year (score >= 7000).
+#   Output: ~/Downloads/GLDL/subreddits/{subreddit}/; --new selects newest posts instead.
+#
+# Omit LIMIT for all available posts. Run any command with --help for options/examples.
+# Reddit uses Firefox cookies; set GL_REDDIT_BROWSER for another browser/profile.
+# gl-saved uses GL_REDDIT_USER from your shell (usually set in
+# ~/Sync/Ricing/.zshrc-private.zsh), otherwise it prompts for your username.
+# Video: best by default, except gldl uses 2nd-best (-1 selects best).
+# -2/-3/-4 prefer lower video ranks; missing ranks fall back to a better one.
+# gl-redditor/gl-subreddit keep the oldest identical media collection examined
+# this run in each folder, removing repost media and its text sidecar. Galleries
+# stay complete: [abc] and [abc, def] both stay. Reports are stored temporarily.
 
 _gl_positive_integer() {
   emulate -L zsh
@@ -163,8 +162,7 @@ _gl_reddit_report() {
 }
 
 # Run gallery-dl and deduplicate complete media collections after a clean run.
-# Keep this here rather than installing a separate helper. Metadata hooks also
-# cover external hosts. Lock the directory itself, without creating a lock file.
+# Include external hosts; lock the directory without creating a lock file.
 _gl_reddit_backup() {
   emulate -L zsh
   command -v python3 >/dev/null 2>&1 || { print -u2 -r -- 'Reddit media deduplication requires python3.'; return 127; }
@@ -210,13 +208,14 @@ def backup():
         fields = {'gl_id': '{id}', 'gl_created': '{created_utc}',
                   'gl_folder': '{_path.realdirectory}', 'gl_source': '\fE ' + source}
         inherited = {key: '{_parent[' + key + ']}' for key in fields}
+        inherited['gl_sidecar'] = '{_parent[gl_sidecar]}'
         hooks = [
             {'name': 'metadata', 'event': 'post', 'mode': 'modify', 'fields': fields, 'filter': "category == 'reddit'"},
             {'name': 'metadata', 'event': 'post,prepare,child', 'mode': 'modify', 'fields': inherited,
              'filter': "category != 'reddit' and bool(locals().get('_parent'))"},
             {'name': 'metadata', 'event': 'after,skip', 'mode': 'jsonl',
              'directory': str(report), 'filename': 'media.jsonl',
-             'include': ['gl_id', 'gl_created', 'gl_folder', 'gl_source', '_path']},
+             'include': ['gl_id', 'gl_created', 'gl_folder', 'gl_source', 'gl_sidecar', '_path']},
         ]
         command = sys.argv[3:]
         command += ['-o', 'extractor.postprocessors=' + json.dumps(hooks),
@@ -235,9 +234,11 @@ def backup():
             row = json.loads(line)
             key = (str(pathlib.Path(row['gl_folder']).relative_to(root)), row['gl_id'])
             post = posts.setdefault(key, {'folder': key[0], 'id': key[1],
-                'created': float(row['gl_created']), 'source': row['gl_source'], 'files': {}})
+                'created': float(row['gl_created']), 'source': row['gl_source'], 'files': {}, 'sidecars': set()})
             relative = str(pathlib.Path(row['_path']).relative_to(root))
             post['files'][relative] = describe(relative)
+            if row.get('gl_sidecar'):
+                post['sidecars'].add(str(pathlib.Path(row['gl_sidecar']).relative_to(root)))
         for post in posts.values():
             # Compare against the declared gallery size, including unavailable
             # items. Never mistake a partially downloaded gallery for a single.
@@ -255,11 +256,15 @@ def backup():
             groups[signature].append(post)
         pending = {}
         retained = set()
+        retained_sidecars = set()
+        reposts = []
         for group in groups.values():
             group.sort(key=lambda p: (p['created'], p['id']))
             winner = group[0]
             retained.update(file['path'] for file in winner['files'])
+            retained_sidecars.update(winner['sidecars'])
             for post in group[1:]:
+                reposts.append((post, winner))
                 for file in post['files']:
                     pending[file['path']] = {'file': file, 'kept': winner['files']}
         pending = {path: item for path, item in pending.items() if path not in retained}
@@ -273,7 +278,21 @@ def backup():
                 raise ValueError('retained media changed; duplicate cleanup stopped')
             (root / path).unlink()
             removed += 1
-        print(f'Media check: removed {removed} duplicate file(s); complete galleries retained.')
+        # Remove only the exact sidecar recorded by the text writer, after all
+        # of the repost's own media is gone. Keep text-only and retained posts.
+        removed_sidecars = 0
+        for post, winner in reposts:
+            if any(file['path'] not in retained and (root / file['path']).exists() for file in post['files']):
+                continue
+            for path in post['sidecars'] - retained_sidecars - retained:
+                if not (root / path).exists():
+                    continue
+                if not valid(winner['files'], fresh=True):
+                    raise ValueError('retained media changed; sidecar cleanup stopped')
+                describe(path, fresh=True)
+                (root / path).unlink()
+                removed_sidecars += 1
+        print(f'Media check: removed {removed} duplicate media file(s) and {removed_sidecars} text sidecar(s).')
         return 0
     finally:
         os.close(lock)
@@ -317,7 +336,7 @@ _gl_reddit_run() {
   esac
 
   # Save text bodies, including captions on media posts; ignore link-only bodies.
-  local text_processor='[{"name":"metadata","event":"post","mode":"custom","filename":"{title[:100]}_{id}_{author}.txt","skip":true,"filter":"bool(re.search(r\"\\w\", re.sub(r\"\\[[^]]*\\]\\(https?://[^)]+\\)|https?://\\S+\", \"\", (selftext or \"\")))) and (selftext or \"\").strip().lower() not in (\"[deleted]\", \"[removed]\")","content-format":"{title}\n\n{selftext}\n\nhttps://www.reddit.com{permalink}\n"}]'
+  local text_processor='[{"name":"metadata","event":"post","mode":"custom","filename":"{title[:100]}_{id}_{author}.txt","metadata-path":"gl_sidecar","skip":true,"filter":"bool(re.search(r\"\\w\", re.sub(r\"\\[[^]]*\\]\\(https?://[^)]+\\)|https?://\\S+\", \"\", (selftext or \"\")))) and (selftext or \"\").strip().lower() not in (\"[deleted]\", \"[removed]\")","content-format":"{title}\n\n{selftext}\n\nhttps://www.reddit.com{permalink}\n"}]'
 
   local ytdl_module
   ytdl_module="$(_gl_ytdl_module)"
@@ -368,11 +387,9 @@ _gl_reddit_run() {
 gldl() {
   emulate -L zsh
   if [[ "${1:-}" == -h || "${1:-}" == --help ]]; then
-    print -r -- 'Usage: gldl [-1|-2|-3|-4] URL|REDDIT_POST_ID [URL ...]'
-    print -r -- 'Reddit videos default to the 2nd-best video. -1 selects best; -3/-4 select lower ranks.'
-    print -r -- 'The displayed video rank is a preference; a missing rank falls back to a better one.'
-    print -r -- 'Download to the current directory. Reddit links use browser cookies.'
-    print -r -- 'Examples: gldl abc123    gldl -1 abc123    gldl -4 "https://www.reddit.com/r/linux/comments/abc123/"'
+    print -r -- 'Usage: gldl [-1|-2|-3|-4] URL|POST_ID [...]'
+    print -r -- 'Download here. Reddit video: 2nd-best by default; -1 selects best.'
+    print -r -- 'Examples: gldl abc123    gldl -1 "https://www.reddit.com/r/linux/comments/abc123/"'
     return 0
   fi
   local src video_rank=2 video_flag=''
@@ -442,9 +459,7 @@ gl-saved() {
     print -r -- 'Usage: gl-saved [LIMIT] [-2|-3|-4]'
     print -r -- 'Download newest saved entries, grouped by subreddit. Best video is the default.'
     print -r -- 'Examples: gl-saved 20    gl-saved 50 -2'
-    print -r -- 'Username: GL_REDDIT_USER, otherwise a prompt in a terminal. No username argument.'
-    print -r -- 'Set a usual GL_REDDIT_USER in ~/Sync/Ricing/.zshrc-private.zsh if that file is sourced.'
-    print -r -- 'Error reports are stored temporarily under /tmp (or $TMPDIR).'
+    print -r -- 'Username: GL_REDDIT_USER, otherwise a prompt.'
     return 0
   fi
 
@@ -496,8 +511,6 @@ gl-redditor() {
     print -r -- 'PERIOD: all, year, month, week, day, hour (with --top).'
     print -r -- 'Examples: gl-redditor 100 SomeUser'
     print -r -- '          gl-redditor 200 --top --time month -2 User1 User2'
-    print -r -- 'Identical media collections in the same folder keep the oldest post examined this run; galleries stay complete.'
-    print -r -- 'LIMIT applies per USER before deduplication. USER is an account to back up, not your login.'
     return 0
   fi
   local limit='' sort=new period=all video_rank=1
@@ -555,11 +568,9 @@ gl-subreddit() {
     print -r -- 'Usage: gl-subreddit [LIMIT] [--top|--new] [--time PERIOD] [--score N] [-2|-3|-4] SUB [...]'
     print -r -- 'Default: top posts from the last year, minimum score 7000, best video.'
     print -r -- '--new downloads newest posts without a score threshold.'
+    print -r -- 'PERIOD: all, year, month, week, day, hour (with --top).'
     print -r -- 'Examples: gl-subreddit 100 linux'
-    print -r -- '          gl-subreddit 50 --new linux fedora'
     print -r -- '          gl-subreddit 200 --top --time month --score 1000 -2 linux'
-    print -r -- 'Identical media collections in the same folder keep the oldest post examined this run; galleries stay complete.'
-    print -r -- 'LIMIT applies per SUB before deduplication.'
     return 0
   fi
   local limit='' sort=top period=year min_score='' time_explicit=0 score_explicit=0 video_rank=1
